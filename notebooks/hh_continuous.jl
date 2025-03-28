@@ -15,17 +15,88 @@ begin
 	#using BifurcationKit
 end
 
+# ╔═╡ dc14f89b-a2f3-4821-9182-fb55dc1383e3
+giant_axon = true
+
 # ╔═╡ 1b979681-3a7b-4041-95e0-461aa5cd54bb
 begin
-	alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
-	beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+	if giant_axon
+	    function alpha_n(v)
+		    vred = v - V_rest
+		    A_n = exp((-vred+10.0)/10.0)
+		    return 0.01 * (-vred + 10.0) / (A_n - 1.0)
+		end
 	
-	# Sodium ion-channel rate functions
-	alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
-	beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+	    function beta_n(v)
+		    vred = v - V_rest
+		    return 0.125 * exp(-vred/80.0)
+		end
+		
+	    function alpha_m(v)
+		    vred = v - V_rest
+		    A_m = exp((-vred+25.0)/10.0)
+		    return 0.1 * (-vred + 25.0) / (A_m - 1.0)
+		end
 	
-	alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
-	beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+	    function beta_m(v)
+		    vred = v - V_rest
+		    return 4.0 * exp(-vred/18.0)
+		end
+	
+	    function alpha_h(v)
+		    vred = v - V_rest
+		    return 0.07 * exp(-vred/20.0)
+		end
+		
+	    function beta_h(v)
+	        vred = v - V_rest
+	        B_h = exp((-vred+30.0)/10.0)
+		    return 1.0 / (B_h + 1.0)
+		end
+	
+	
+
+		temperature_factor(t) = 3^((t - 6.3) / 10)
+	
+		# Define parameters
+		gK = 36.0
+		gNa = 120.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 55.0
+		EL = -65.
+		C = 1.
+	
+		V_rest = -69.7  # See to which value it converges in steady state
+
+	else
+		alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
+		beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+		
+		# Sodium ion-channel rate functions
+		alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
+		beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+		
+		alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
+		beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+
+		gK = 36.0
+		gNa = 40.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 55.0
+		EL = -65.
+		C = 1.
+		V_rest = -63.  # See to which value it converges in steady state
+	end
+
+
+	temperature_factor(t) = 3^((t - 6.3) / 10)
+	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
+	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
+	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
+	
+	
 end
 
 # ╔═╡ ac95a68b-9590-4bbe-b661-417d7b06cc40
@@ -46,13 +117,14 @@ function hh!(du, u, p, t)
 end
 
 
-# ╔═╡ 92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
+# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
 begin
-	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
-	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
-	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
-
-	temperature_factor(t) = 3^((t - 6.3) / 10)
+	# Initial conditions
+	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
+	
+	# Time span
+	tspan = (0.0, 100.0)
+	
 end
 
 # ╔═╡ 09377048-ce60-4383-949f-ce2a05735b72
@@ -74,31 +146,15 @@ end
 # function to record information from a solution
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
-# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
-@info T
-
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-I = 1. # 0.400
+I = 2. # 0.400
 
 # ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
 T = 6.3
 
 # ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
 begin
-	# Define parameters
-	gK = 36.0
-	gNa = 40.0
-	gL = 0.3
-	EK = -77.0
-	ENa = 55.0
-	EL = -65.
-	C = 1.
-
-	V_rest = -63.  # See to which value it converges in steady state
-
-	
 	temp_factor = temperature_factor(T)
-	
 	p = (
 	gK=gK, 
 	gNa=gNa, 
@@ -110,17 +166,11 @@ begin
 	C=C, 
 	I=I
 	)
+	
 end
 
-# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
-begin
-	# Initial conditions
-	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
-	
-	# Time span
-	tspan = (0.0, 100.0)
-	
-end
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
 
 # ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
 md"Even under correct initialization of initial values (n_inf(V_rest) ..), a singular spike can be achieved with a certain amount of current (~0.375)"
@@ -2834,8 +2884,8 @@ version = "1.4.1+2"
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
+# ╠═dc14f89b-a2f3-4821-9182-fb55dc1383e3
 # ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
-# ╠═92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
 # ╠═30501e41-cfcb-48bf-9061-0d2102a5c7f6
 # ╠═09377048-ce60-4383-949f-ce2a05735b72
