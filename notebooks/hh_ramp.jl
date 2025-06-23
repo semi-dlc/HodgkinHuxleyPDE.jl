@@ -12,24 +12,118 @@ begin
 	#using BifurcationKit
 end
 
-# ╔═╡ 1b979681-3a7b-4041-95e0-461aa5cd54bb
+# ╔═╡ 1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 begin
-	alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
-	beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+	giant_axon = true
+	pyds = false
+end
+
+# ╔═╡ 2599bfdb-77f3-43be-8a7c-eb78dacad3b7
+begin
+	if giant_axon
+	    function alpha_n(v)
+		    vred = v - V_rest
+		    A_n = exp((-vred+10.0)/10.0)
+		    return 0.01 * (-vred + 10.0) / (A_n - 1.0)
+		end
 	
-	# Sodium ion-channel rate functions
-	alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
-	beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+	    function beta_n(v)
+		    vred = v - V_rest
+		    return 0.125 * exp(-vred/80.0)
+		end
+		
+	    function alpha_m(v)
+		    vred = v - V_rest
+		    A_m = exp((-vred+25.0)/10.0)
+		    return 0.1 * (-vred + 25.0) / (A_m - 1.0)
+		end
 	
-	alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
-	beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+	    function beta_m(v)
+		    vred = v - V_rest
+		    return 4.0 * exp(-vred/18.0)
+		end
+	
+	    function alpha_h(v)
+		    vred = v - V_rest
+		    return 0.07 * exp(-vred/20.0)
+		end
+		
+	    function beta_h(v)
+	        vred = v - V_rest
+	        B_h = exp((-vred+30.0)/10.0)
+		    return 1.0 / (B_h + 1.0)
+		end
+	
+	
+
+		temperature_factor(t) = 3^((t - 6.3) / 10)
+	
+		# Define parameters
+		gK = 36.0
+		gNa = 120.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 50.0
+		EL = -54.4
+		C = 1.
+	
+		V_rest = -65.  # See to which value it converges in steady state
+
+	elseif pyds
+		alpha_n(v) = .032*(v+52)/(1-exp(-(v+52)/5))
+		beta_n(v) = .5*exp(-(57+v)/40)
+		# Sodium ion-channel rate functions
+		alpha_m(v) = (0.32 * (v + 54.0)) / (1.0 - exp((-1.0 * (v + 54.0)) / 4.0))
+		beta_m(v) = (0.28 * (v + 27.0)) / (exp((v+27)/5)-1)
+		
+		alpha_h(v) = 0.128 * exp((-1.0 * (v + 50.0)) / 18.0)
+		beta_h(v) = 4/(1+exp(-(v+27)/5))
+
+		
+		gNa = 100.0
+		gK = 80.0
+		gL = 0.1
+		EK = -100.0
+		ENa = 50.0
+		EL = -67.
+		C = 1.
+		V_rest = -63. 
+		
+	else
+		alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
+		beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+		
+		# Sodium ion-channel rate functions
+		alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
+		beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+		
+		alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
+		beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+
+		gK = 36.0
+		gNa = 40.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 55.0
+		EL = -65.
+		C = 1.
+		V_rest = -69.  # See to which value it converges in steady state
+	end
+
+
+	temperature_factor(t) = 3^((t - 6.3) / 10)
+	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
+	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
+	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
+	
+	
 end
 
 # ╔═╡ ac95a68b-9590-4bbe-b661-417d7b06cc40
 # Define the Hodgkin-Huxley model
 function hh!(du, u, p, t)
     # Extract parameters
-    (;gK, gNa, gL, EK, ENa, EL, C, I_func) = p
+    (;gK, gNa, gL, EK, ENa, EL, T, C, I_func) = p
 
 	I_stim = I_func(t)
 	
@@ -38,21 +132,12 @@ function hh!(du, u, p, t)
 
     # Define the ODEs
     du[1] = (-(gK * (n^4.0) * (v - EK)) - (gNa * (m^3.0) * h * (v - ENa)) - (gL * (v - EL)) + I_stim) / C
-    du[2] =  (alpha_n(v) * (1.0 - n)) - (beta_n(v) * n)
-    du[3] =  (alpha_m(v) * (1.0 - m)) - (beta_m(v) * m)
-    du[4] =  (alpha_h(v) * (1.0 - h)) - (beta_h(v) * h)
+    du[2] =  T*((alpha_n(v) * (1.0 - n)) - (beta_n(v) * n))
+    du[3] =  T*((alpha_m(v) * (1.0 - m)) - (beta_m(v) * m))
+    du[4] =  T*((alpha_h(v) * (1.0 - h)) - (beta_h(v) * h))
 	du
 end
 
-
-# ╔═╡ 92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
-begin
-	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
-	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
-	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
-
-	temperature_factor(t) = 3^((t - 6.3) / 10)
-end
 
 # ╔═╡ c38c5074-3ce7-4d20-803d-d49bb4e637d9
 function ramp(minimum, maximum, start, ending, t; steady=false)
@@ -75,6 +160,16 @@ end
 
 # ╔═╡ 44382675-7e10-49da-87e4-b5e9165635b4
 
+
+# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
+begin
+	# Initial conditions
+	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
+	
+	# Time span
+	tspan = (0.0, 20000.0)
+	
+end
 
 # ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
 
@@ -117,34 +212,29 @@ diagram = bifurcationdiagram(
 scene = plot(diagram; code = (), title="$(size(diagram)) branches", legend = false)
   ╠═╡ =#
 
+# ╔═╡ 94ba39de-2e94-4d0e-bfea-57110de0e652
+# ╠═╡ disabled = true
+#=╠═╡
+
+  ╠═╡ =#
+
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-I = 4.0
+I = 200.0 # maximum current
 
 # ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
 begin
-	# Define parameters
-	gK = 36.0
-	gNa = 40.0
-	gL = 0.3
-	EK = -77.0
-	ENa = 55.0
-	EL = -65.
-	C = 1.
-
-	V_rest = -65.
-
-	T=29.
+	T=6.3
 	temp_factor = temperature_factor(T)
 
-	t_start_stim = 0.
-	t_end_stim = 4000.
+	t_start_stim = 1000.
+	t_end_stim = 19000.
 
 	function I_ramp(t)
 		return ramp(0, I, t_start_stim, t_end_stim, t)
 	end
 
 	function I_trig(t)
-		t2 = Int((t_end_stim-t_start_stim) / 2)
+		t2 = Int((t_end_stim+t_start_stim) / 2)
 		if t <= t2
 			return ramp(0, I, t_start_stim, t2, t)
 		elseif t > t2
@@ -167,19 +257,6 @@ begin
 	)
 end
 
-# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
-begin
-	# Initial conditions
-	u0 = [V_rest, n_inf(0), m_inf(0), h_inf(0)]
-	
-	# Time span
-	tspan = (0.0, 5000.0)
-	
-end
-
-# ╔═╡ de87ea33-7983-4414-bf00-d0841137d6cf
-@info I
-
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
 begin
 	# Define the problem
@@ -187,7 +264,7 @@ begin
 	probODE = ODEProblem(hh!, u0, tspan, p)
 	
 	# Solve the ODE
-	sol = solve(probODE, Tsit5())
+	sol = solve(probODE, TRBDF2(); maxiters=1e7, dtmax=2e-3)
 
 	# Extract solution components
 	t_vals = sol.t                     # Time values
@@ -198,16 +275,28 @@ begin
 	
 end
 
-# ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
-# Plot the results
-plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+# ╔═╡ 9b28cefd-df65-4683-8526-0a3b1ebfef4c
+md"We see an obvious difference in behaviour when raising the current to 200 uA/cm^2 compared to the other way around."
 
+# ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
+# ╠═╡ disabled = true
+#=╠═╡
+# Plot the results
+V_plot = plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+
+  ╠═╡ =#
 
 # ╔═╡ 26479215-f6bf-4af3-9a56-a84cb1726bb8
-plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current", label="I(t)")
+plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current (uA/cm^2)", label="I(t)")
+
+# ╔═╡ 6343a539-12d2-4f11-8214-d423630c1acc
+sol.t
 
 # ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
-plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label="n,m,h")
+begin
+plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], legend=:top,                      # position at top center
+        legend_background_color=:transparent, alpha=0.7)
+end
 
 # ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
 begin
@@ -218,26 +307,33 @@ begin
 end
 
 # ╔═╡ e438df90-4962-4fb7-8acf-63f660d80561
-
+v1_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
 
 # ╔═╡ a76eec24-6fde-420f-93db-0c07bae14903
-
+i1_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current", label="I(t)")
 
 # ╔═╡ 055f4903-39e0-4731-a2f5-c8a7fba3cb70
-
+v2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
 
 # ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 
 
 # ╔═╡ 0f72db21-f27a-4492-9337-8948bc94d382
 # ╠═╡ show_logs = false
-
-
-# ╔═╡ 927649a9-5dc9-4e09-91e6-b95bde96e648
-
+i2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current", label="I(t)", xlim=(2500., 2600.))
 
 # ╔═╡ 726e0681-d6f0-4d46-9b4b-1222ebda4eac
+nmh3_plot = plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], legend=:top,                      # position at top center
+        legend_background_color=:transparent, alpha=0.7, xlim=(2500., 2600.))
 
+# ╔═╡ c367b6ac-011b-40a0-abd5-b6a070d12306
+# ╠═╡ disabled = true
+#=╠═╡
+v3_plot = plot(sol.t, Vmin, xlabel="Time (ms)", ylabel="Minimum Membrane Potential (mV)", label="V_min(t)")
+  ╠═╡ =#
+
+# ╔═╡ 927649a9-5dc9-4e09-91e6-b95bde96e648
+v3_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", xlim=(2500., 2600.))
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2909,8 +3005,8 @@ version = "1.4.1+2"
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
-# ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
-# ╠═92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
+# ╠═1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
+# ╠═2599bfdb-77f3-43be-8a7c-eb78dacad3b7
 # ╠═c38c5074-3ce7-4d20-803d-d49bb4e637d9
 # ╠═44382675-7e10-49da-87e4-b5e9165635b4
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
@@ -2921,11 +3017,13 @@ version = "1.4.1+2"
 # ╠═335b90e4-748b-4f78-bef4-a1902abd83b9
 # ╠═b6370869-f4e2-4462-9955-0f68db81680f
 # ╠═96687775-8f32-4fa8-9ea9-1d297e1b3305
-# ╠═de87ea33-7983-4414-bf00-d0841137d6cf
+# ╠═94ba39de-2e94-4d0e-bfea-57110de0e652
 # ╠═867a194c-1904-4054-906e-1ae9e14a0811
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
+# ╟─9b28cefd-df65-4683-8526-0a3b1ebfef4c
 # ╠═1833d6ec-8cd2-4d9a-969b-790462671ae5
 # ╠═26479215-f6bf-4af3-9a56-a84cb1726bb8
+# ╠═6343a539-12d2-4f11-8214-d423630c1acc
 # ╠═8a4bf031-874b-4c6f-8896-b63df1624705
 # ╠═c50c1f50-f271-47a1-a95b-38a858934201
 # ╠═e438df90-4962-4fb7-8acf-63f660d80561
@@ -2935,5 +3033,6 @@ version = "1.4.1+2"
 # ╠═0f72db21-f27a-4492-9337-8948bc94d382
 # ╠═927649a9-5dc9-4e09-91e6-b95bde96e648
 # ╠═726e0681-d6f0-4d46-9b4b-1222ebda4eac
+# ╠═c367b6ac-011b-40a0-abd5-b6a070d12306
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

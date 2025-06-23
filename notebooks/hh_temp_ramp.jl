@@ -8,81 +8,163 @@ using InteractiveUtils
 begin
 	using DifferentialEquations
 	using Plots
-	using BifurcationKit
-	using ForwardDiff
+	using PlutoUI
+	using StatsPlots
+	#using BifurcationKit
 end
 
-# ╔═╡ e6a0eca9-b97b-493b-8d37-fdd939516580
-
-
-# ╔═╡ 1b979681-3a7b-4041-95e0-461aa5cd54bb
+# ╔═╡ 1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 begin
-	alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
-	beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+	giant_axon = true
+	pyds = false
+	if giant_axon
+		type = "giant squid axon"
+	elseif pyds
+		type = "cortical pyramidal neuron"
+	end
+end
+
+# ╔═╡ 2599bfdb-77f3-43be-8a7c-eb78dacad3b7
+begin
+	if giant_axon
+	    function alpha_n(v)
+		    vred = v - V_rest
+		    A_n = exp((-vred+10.0)/10.0)
+		    return 0.01 * (-vred + 10.0) / (A_n - 1.0)
+		end
 	
-	# Sodium ion-channel rate functions
-	alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
-	beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+	    function beta_n(v)
+		    vred = v - V_rest
+		    return 0.125 * exp(-vred/80.0)
+		end
+		
+	    function alpha_m(v)
+		    vred = v - V_rest
+		    A_m = exp((-vred+25.0)/10.0)
+		    return 0.1 * (-vred + 25.0) / (A_m - 1.0)
+		end
 	
-	alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
-	beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+	    function beta_m(v)
+		    vred = v - V_rest
+		    return 4.0 * exp(-vred/18.0)
+		end
+	
+	    function alpha_h(v)
+		    vred = v - V_rest
+		    return 0.07 * exp(-vred/20.0)
+		end
+		
+	    function beta_h(v)
+	        vred = v - V_rest
+	        B_h = exp((-vred+30.0)/10.0)
+		    return 1.0 / (B_h + 1.0)
+		end
+	
+	
+
+		temperature_factor(t) = 3^((t - 6.3) / 10)
+	
+		# Define parameters
+		gK = 36.0
+		gNa = 120.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 50.0
+		EL = -54.4
+		C = 1.
+	
+		V_rest = -65.  # See to which value it converges in steady state
+
+	elseif pyds
+		alpha_n(v) = .032*(v+52)/(1-exp(-(v+52)/5))
+		beta_n(v) = .5*exp(-(57+v)/40)
+		# Sodium ion-channel rate functions
+		alpha_m(v) = (0.32 * (v + 54.0)) / (1.0 - exp((-1.0 * (v + 54.0)) / 4.0))
+		beta_m(v) = (0.28 * (v + 27.0)) / (exp((v+27)/5)-1)
+		
+		alpha_h(v) = 0.128 * exp((-1.0 * (v + 50.0)) / 18.0)
+		beta_h(v) = 4/(1+exp(-(v+27)/5))
+
+		
+		gNa = 100.0
+		gK = 80.0
+		gL = 0.1
+		EK = -100.0
+		ENa = 50.0
+		EL = -67.
+		C = 1.
+		V_rest = -63. 
+		
+	else
+		alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
+		beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+		
+		# Sodium ion-channel rate functions
+		alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
+		beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+		
+		alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
+		beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+
+		gK = 36.0
+		gNa = 40.0
+		gL = 0.3
+		EK = -77.0
+		ENa = 55.0
+		EL = -65.
+		C = 1.
+		V_rest = -69.  # See to which value it converges in steady state
+	end
+
+
+	temperature_factor(t) = 3^((t - 6.3) / 10)
+	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
+	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
+	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
+	
+	
 end
 
 # ╔═╡ ac95a68b-9590-4bbe-b661-417d7b06cc40
 # Define the Hodgkin-Huxley model
-function hh!(du, u, p, t=0)
+function hh!(du, u, p, t)
     # Extract parameters
-    (;gK, gNa, gL, EK, ENa, EL, C, I) = p
+    (;gK, gNa, gL, EK, ENa, EL, T, C, I_func) = p # exchange I_stim, temperature # not good for syntax and readability
 
+	I_stim = T
+
+	temperature = I_func(t)
+	TF = temperature_factor(temperature)
+	
     # Extract state variables
     v, n, m, h = u
 
     # Define the ODEs
-    du[1] = (-(gK * (n^4.0) * (v - EK)) - (gNa * (m^3.0) * h * (v - ENa)) - (gL * (v - EL)) + I) / C
-    du[2] =  (alpha_n(v) * (1.0 - n)) - (beta_n(v) * n)
-    du[3] =  (alpha_m(v) * (1.0 - m)) - (beta_m(v) * m)
-    du[4] =  (alpha_h(v) * (1.0 - h)) - (beta_h(v) * h)
+    du[1] = (-(gK * (n^4.0) * (v - EK)) - (gNa * (m^3.0) * h * (v - ENa)) - (gL * (v - EL)) + I_stim) / C
+    du[2] =  TF * ((alpha_n(v) * (1.0 - n)) - (beta_n(v) * n))
+    du[3] =  TF * ((alpha_m(v) * (1.0 - m)) - (beta_m(v) * m))
+    du[4] =  TF * ((alpha_h(v) * (1.0 - h)) - (beta_h(v) * h))
 	du
 end
 
 
-# ╔═╡ 92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
-begin
-	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
-	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
-	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
-
-	temperature_factor(t) = 3^((t - 6.3) / 10)
-end
-
-# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
-begin
-	# Define parameters
-	gK = 36.0
-	gNa = 40.0
-	gL = 0.3
-	EK = -77.0
-	ENa = 55.0
-	EL = -65.
-	C = 1.
-
-	V_rest = -63.
-
-	T=29.
-	temp_factor = temperature_factor(T)
-	I=0.
-	
-	p = (
-	gK=gK, 
-	gNa=gNa, 
-	gL=gL, 
-	EK=EK, 
-	ENa=ENa, 
-	EL=EL, 
-	T=temp_factor,
-	C=C, 
-	I=I
-	)
+# ╔═╡ c38c5074-3ce7-4d20-803d-d49bb4e637d9
+function ramp(minimum, maximum, start, ending, t; steady=false)
+    if t <= start
+		if steady
+        	return minimum
+		else
+			return 0
+		end
+    elseif t >= ending
+		if steady
+        	return maximum
+		else
+			return 0
+		end
+    else
+        return minimum + (t - start) / (ending - start) * (maximum - minimum)
+    end
 end
 
 # ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
@@ -91,279 +173,162 @@ begin
 	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
 	
 	# Time span
-	tspan = (0.0, 200.0)
+	tspan = (0.0, 10000.0)
 	
-	
-end
-
-# ╔═╡ d8bf1fbc-3834-48b1-a5c5-1e3d259f5d21
-begin
-	# Jacobian of H.H. Model by AD
-
-	# Wrap hh! into non-in-place hh
-	function hh(u, p, t=0)
-	    du = similar(u)
-	    hh!(du, u, p, t)
-	    return du
-	end
-	D_hh_AD(u0, p) = ForwardDiff.jacobian(u -> hh(u, p), u0)
 end
 
 # ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-begin
-	# Jacobian of Hodgkin Huxley model by explicit differentiation
-	
-	function d_alpha_n(v)
-	    u = v - 25.0
-	    A = 1.0 - exp(-u/9)
-	    return 0.02 * (A - u * (exp(-u/9)/9)) / (A^2)
-	end
-	
-	function d_beta_n(v)
-	    u = v - 25.0
-	    B = 1.0 - exp(u/9)
-	    return -0.002 * (B - u * (exp(u/9)/9)) / (B^2)
-	end
-	
-	function d_alpha_m(v)
-	    u = v + 35.0
-	    A = 1.0 - exp(-u/9)
-	    return 0.182 * (A - u * (exp(-u/9)/9)) / (A^2)
-	end
-	
-	function d_beta_m(v)
-	    u = v + 35.0
-	    B = 1.0 - exp(u/9)
-	    return -0.124 * (B - u * (exp(u/9)/9)) / (B^2)
-	end
-	
-	function d_alpha_h(v)
-	    return - (0.25/12) * exp(-(v+90)/12)
-	end
-	
-	function d_beta_h(v)
-	    return (0.25/12) * exp((v+34)/12)
-	end
-	
-	# Jacobian function for the Hodgkin-Huxley model
-	function D_hh(u, p, t=0)
-	    # Unpack parameters
-	    (;gK, gNa, gL, EK, ENa, EL, C, I) = p
-	    # Unpack state variables: v, n, m, h
-	    v, n, m, h = u
 
-		J = zeros((4,4))
-	
-	    # Equation 1: Voltage dynamics
-	    # f₁ = ( -gK*n^4*(v - EK) - gNa*m^3*h*(v - ENa) - gL*(v - EL) + I ) / C
-	    J[1,1] = (-gK * n^4 - gNa * m^3 * h - gL) / C
-	    J[1,2] = -(4 * gK * n^3 * (v - EK)) / C
-	    J[1,3] = -(3 * gNa * m^2 * h * (v - ENa)) / C
-	    J[1,4] = -(gNa * m^3 * (v - ENa)) / C
-	
-	    # Equation 2: n dynamics
-	    # f₂ = αₙ(v) * (1 - n) - βₙ(v) * n
-	    J[2,1] = d_alpha_n(v) * (1 - n) - d_beta_n(v) * n
-	    J[2,2] = -alpha_n(v) - beta_n(v)
-	    J[2,3] = 0.0
-	    J[2,4] = 0.0
-	
-	    # Equation 3: m dynamics
-	    # f₃ = αₘ(v) * (1 - m) - βₘ(v) * m
-	    J[3,1] = d_alpha_m(v) * (1 - m) - d_beta_m(v) * m
-	    J[3,2] = 0.0
-	    J[3,3] = -alpha_m(v) - beta_m(v)
-	    J[3,4] = 0.0
-	
-	    # Equation 4: h dynamics
-	    # h'(v) = αₕ(v) * (1 - h) - βₕ(v) * h
-	    J[4,1] = d_alpha_h(v) * (1 - h) - d_beta_h(v) * h
-	    J[4,2] = 0.0
-	    J[4,3] = 0.0
-	    J[4,4] = -alpha_h(v) - beta_h(v)
-	
-	    return J
-	end
-	
-end
 
 # ╔═╡ 20749723-db83-49d0-b414-738199bd7656
 # function to record information from a solution
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
 # ╔═╡ 335b90e4-748b-4f78-bef4-a1902abd83b9
-# continuation options
-opts_br = ContinuationPar(
-	p_min = -2.0, 
-	p_max = 10.0, 
-	ds=-0.002,
-	dsmax = 0.02,
-	n_inversion = 8, 
-	detect_bifurcation = 3,
-	# number of eigenvalues
-	nev = 6,
-	# maximum number of continuation steps
-	max_steps = 1000
-	)
-
-# ╔═╡ f1b5805a-c41b-4947-8d39-c7e2794ee999
-#=╠═╡
-# Equiblirium continuation 
-br = continuation(prob, PALC(), opts_br, bothside = true)
-  ╠═╡ =#
-
-# ╔═╡ 04df6fb9-902c-43b4-b039-e4efaa4192a3
-@show br_po1
-
-# ╔═╡ 96687775-8f32-4fa8-9ea9-1d297e1b3305
-#=╠═╡
-scene = plot(br; code = (), legend = true)
-  ╠═╡ =#
-
-# ╔═╡ 9b1900f1-8f7d-4e85-b55a-56f79fd24805
-opts_orbit = ContinuationPar(
-	p_min = 0.1, 
-	p_max = 3.0, 
-	ds=1.e-3,
-	dsmin=1.e-6,
-	dsmax = 0.02,
-	n_inversion = 8, 
-	detect_bifurcation = 3,
-	# number of eigenvalues
-	nev = 8,
-	# maximum number of continuation steps
-	max_steps = 1000
-	)
-
-# ╔═╡ 50738757-002d-4a71-9aae-595fc3207681
-#=╠═╡
-# Finding periodic orbits based from Hopf bifurcation point at I = 2.8
-br_po1 = continuation(
-		br, 
-		2, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitTrapProblem(M=30),
-		nev=6,
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ 6bdffa2d-07c2-4f37-8a9c-b39a3b3ca605
-#=╠═╡
-br_po2 = continuation(
-		br, 
-		2, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitOCollProblem(20, 5),
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ ab5e9fdb-4ea4-48eb-90c0-f2c49e9e2fbe
-#=╠═╡
-plot(br, br_po1, branchlabel = ["equib" "periodic orbits"])#, xlims=[-2, 3.], ylims=[-65., 50.])
-# How is u1 / V calculated? average/min/max? 
-  ╠═╡ =#
-
-# ╔═╡ a942bf23-3d95-462c-b48d-48d9e45184a9
-#=╠═╡
-plot(br, br_po2, branchlabel = ["equib" "periodic orbits"])#, xlims=[-2, 3.], ylims=[-65., 50.])
-# How is u1 / V calculated? average/min/max? 
-  ╠═╡ =#
-
-# ╔═╡ 4a8606a3-c0e6-40b3-9bcf-37650764ec5d
-#=╠═╡
-br_po3 = continuation(
-		br_po1, 
-		8, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitTrapProblem(M=30),
-		nev=6,
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ 8a6ebe57-836c-4618-bada-9b66575ffbc4
 # ╠═╡ disabled = true
 #=╠═╡
-plot(br, br_po2, branchlabel = ["equib" "periodic orbits"])#, xlims=[0.35, 0.41], ylims=[-65., -50.])
-# How is u1 / V calculated? average/min/max? 
+# continuation options
+opts_br = ContinuationPar(p_min = 0.0, p_max = 10.0, dsmax = 0.1,
+	# number of eigenvalues
+	#nev = 4,
+	# maximum number of continuation steps
+	max_steps = 1000,)
+  ╠═╡ =#
+
+# ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
+T_max = 40.0 # maximum temperature
+
+# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
+begin
+	T=6.3
+	I_stim = 50.
+	I = I_stim
+	
+	temp_factor = temperature_factor(T)
+
+	t_start_stim = 1000.
+	t_end_stim = 9000.
+
+	function I_ramp(t)
+		return ramp(0, I, t_start_stim, t_end_stim, t)
+	end
+
+	function I_trig(t)
+		t2 = Int((t_end_stim + t_start_stim) / 2)
+		if t <= t2
+			return ramp(0, T_max, t_start_stim, t2, t)
+		elseif t > t2
+			return ramp(T_max, 0, t2, t_end_stim, t)
+		end
+	end
+
+	p = (
+	gK=gK, 
+	gNa=gNa, 
+	gL=gL, 
+	EK=EK, 
+	ENa=ENa, 
+	EL=EL, 
+	T=I_stim,
+	C=C, 
+	I_func=I_trig
+	)
+end
+
+# ╔═╡ 7c9b025a-9d25-4e56-a3c9-a7e910011263
+# ╠═╡ disabled = true
+#=╠═╡
+prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution)
+  ╠═╡ =#
+
+# ╔═╡ b6370869-f4e2-4462-9955-0f68db81680f
+# ╠═╡ disabled = true
+#=╠═╡
+diagram = bifurcationdiagram(
+	prob, 
+	PALC(),
+	3,
+	ContinuationPar(opts_br; ds = -0.001, dsmax = 0.05, n_inversion = 8, detect_bifurcation = 3)
+	)
+  ╠═╡ =#
+
+# ╔═╡ 96687775-8f32-4fa8-9ea9-1d297e1b3305
+# ╠═╡ disabled = true
+#=╠═╡
+scene = plot(diagram; code = (), title="$(size(diagram)) branches", legend = false)
   ╠═╡ =#
 
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
-# ╠═╡ disabled = true
-#=╠═╡
 begin
 	# Define the problem
 	
 	probODE = ODEProblem(hh!, u0, tspan, p)
 	
 	# Solve the ODE
-	sol = solve(probODE, Tsit5())
-	
-	# Plot the results
-	plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+	sol = solve(probODE, TRBDF2(); dtmax=2e-3, maxiters=1e7)
 
-	# Plot the results
-	plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label="n,m,h")
-	
+	# Extract solution components
+	t_vals = sol.t                     # Time values
+	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
+	m_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
+	h_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
+	n_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
 	
 end
-  ╠═╡ =#
 
-# ╔═╡ ca1f3992-f945-4377-bc6c-74a682b30afd
-#=╠═╡
-sol1 = get_periodic_orbit(br_po1, 200) # get periodic orbit of br_po1 (detecting from second hopf bifurcation at the 4-th point)
-  ╠═╡ =#
+# ╔═╡ 9b28cefd-df65-4683-8526-0a3b1ebfef4c
+md"We see an obvious difference in behaviour when raising the current to 200 uA/cm^2 compared to the other way around."
 
-# ╔═╡ 09ee9194-33f5-4abb-98ff-9c49a0f85168
-#=╠═╡
-plot(sol1.t, sol1[1,:], label = "V", xlabel = "time")
-  ╠═╡ =#
+# ╔═╡ 26479215-f6bf-4af3-9a56-a84cb1726bb8
+plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Temperature", label="T(t)", title="$type, ramp I_stim $I μA/cm^2",  size=(800, 600),
+	titlefontsize=12)
 
-# ╔═╡ 073d97d6-b974-4b9a-ac33-f2e0ada15926
-#=╠═╡
-begin
-	plot(sol1.t, sol1[2,:], label = "n", xlabel = "time")
-	plot!(sol1.t, sol1[3,:], label = "m", xlabel = "time")
-	plot!(sol1.t, sol1[4,:], label = "h", xlabel = "time")
-end
-  ╠═╡ =#
+# ╔═╡ af16fd92-6748-4a3d-970c-b022a51f3c82
+sol.t
 
-# ╔═╡ 7a9801e3-1f00-4d0f-b2b2-13a6f3041f09
 
-# try I_stim experimentally around Hopf point
-# try new branch on blue point of green curve
-# periodic doubling at I_0.4?
-# 
+# ╔═╡ 17ea3c89-0ef3-46d7-b4a4-2bbf5f5ec72b
+# Plot the results
+V_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="$type, ramp I_stim $I μA/cm^2",  size=(800, 600))
 
-# ╔═╡ 7c9b025a-9d25-4e56-a3c9-a7e910011263
-#=╠═╡
-prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution)
-  ╠═╡ =#
 
-# ╔═╡ 283b26d2-7a12-40a1-9c8d-b4dafc8c94d1
-# ╠═╡ disabled = true
-#=╠═╡
-prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution; J=D_hh)
-  ╠═╡ =#
+# ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
+plot(sol.t,
+	[getindex.(sol.u, 2) getindex.(sol.u, 3) getindex.(sol.u, 4)], 
+	xlabel="Time (ms)", 
+	ylabel="Gating variables", 
+	label=["n" "m" "h"], 
+	title="$type, ramp I_stim $I μA/cm²", 
+	size=(800, 600), 
+	titlefontsize=12, alpha=0.7)
+
+
+# ╔═╡ e438df90-4962-4fb7-8acf-63f660d80561
+v1_plot = plot(sol.t,getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", xlim=(12400., 12500.))
+
+# ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
+
+
+# ╔═╡ 0f72db21-f27a-4492-9337-8948bc94d382
+# ╠═╡ show_logs = false
+i2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Temperature", label="T(t)", xlim=(36400., 36500.))
+
+# ╔═╡ b04a402f-9a26-4659-87f6-7e70ffa643fc
+sizeof(sol.t)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-BifurcationKit = "0f109fa4-8a5d-4b75-95aa-f515264e7665"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
-BifurcationKit = "~0.4.9"
 DifferentialEquations = "~7.16.0"
-ForwardDiff = "~0.10.38"
 Plots = "~1.40.9"
+PlutoUI = "~0.7.23"
+StatsPlots = "~0.15.7"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -372,7 +337,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "e97cc9b0240546abb35fe532f77f7cd95212d19e"
+project_hash = "89dad4895bd4eb618e3264a175805559e77b4530"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -384,6 +349,23 @@ weakdeps = ["ChainRulesCore", "ConstructionBase", "EnzymeCore"]
     ADTypesChainRulesCoreExt = "ChainRulesCore"
     ADTypesConstructionBaseExt = "ConstructionBase"
     ADTypesEnzymeCoreExt = "EnzymeCore"
+
+[[deps.AbstractFFTs]]
+deps = ["LinearAlgebra"]
+git-tree-sha1 = "d92ad398961a3ed262d8bf04a1a2b8340f915fef"
+uuid = "621f4979-c628-5d54-868e-fcf4e3e8185c"
+version = "1.5.0"
+weakdeps = ["ChainRulesCore", "Test"]
+
+    [deps.AbstractFFTs.extensions]
+    AbstractFFTsChainRulesCoreExt = "ChainRulesCore"
+    AbstractFFTsTestExt = "Test"
+
+[[deps.AbstractPlutoDingetjes]]
+deps = ["Pkg"]
+git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+uuid = "6e696c72-6542-2067-7265-42206c756150"
+version = "1.3.2"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -444,9 +426,9 @@ version = "0.4.0"
 
 [[deps.Arpack]]
 deps = ["Arpack_jll", "Libdl", "LinearAlgebra", "Logging"]
-git-tree-sha1 = "91ca22c4b8437da89b030f08d71db55a379ce958"
+git-tree-sha1 = "9b9b347613394885fd1c8c7729bfc60528faa436"
 uuid = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
-version = "0.5.3"
+version = "0.5.4"
 
 [[deps.Arpack_jll]]
 deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "OpenBLAS_jll", "Pkg"]
@@ -500,6 +482,12 @@ weakdeps = ["SparseArrays"]
 uuid = "56f22d72-fd6d-98f1-02f0-08ddc0907c33"
 version = "1.11.0"
 
+[[deps.AxisAlgorithms]]
+deps = ["LinearAlgebra", "Random", "SparseArrays", "WoodburyMatrices"]
+git-tree-sha1 = "01b8ccb13d68535d73d2b0c23e39bd23155fb712"
+uuid = "13072b0f-2c55-5437-9ae7-d433b7a33950"
+version = "1.1.0"
+
 [[deps.BandedMatrices]]
 deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra", "PrecompileTools"]
 git-tree-sha1 = "4a591da886b61415e2c0dea130d28da1e9077cfb"
@@ -514,23 +502,6 @@ weakdeps = ["SparseArrays"]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
-[[deps.BifurcationKit]]
-deps = ["Accessors", "ArnoldiMethod", "Arpack", "BlockArrays", "DataStructures", "Dates", "DocStringExtensions", "FastGaussQuadrature", "ForwardDiff", "IterativeSolvers", "Krylov", "KrylovKit", "LinearAlgebra", "LinearMaps", "Parameters", "PreallocationTools", "Printf", "RecursiveArrayTools", "Reexport", "SciMLBase", "SparseArrays", "StructArrays"]
-git-tree-sha1 = "da0f7f65a162db9533a89ea3198cbc7fc8c7dfa0"
-uuid = "0f109fa4-8a5d-4b75-95aa-f515264e7665"
-version = "0.4.9"
-
-    [deps.BifurcationKit.extensions]
-    JLD2Ext = "JLD2"
-    MakieExt = "Makie"
-    PlotsExt = ["Plots", "RecipesBase"]
-
-    [deps.BifurcationKit.weakdeps]
-    JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
-    Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
-    Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
-
 [[deps.BitFlags]]
 git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
@@ -541,16 +512,6 @@ deps = ["Static"]
 git-tree-sha1 = "f21cfd4950cb9f0587d5067e69405ad2acd27b87"
 uuid = "62783981-4cbd-42fc-bca8-16325de8dc4b"
 version = "0.1.6"
-
-[[deps.BlockArrays]]
-deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra"]
-git-tree-sha1 = "1ded9033f6067573314b27cd4b9ff01a1ba92cff"
-uuid = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
-version = "1.4.0"
-weakdeps = ["BandedMatrices"]
-
-    [deps.BlockArrays.extensions]
-    BlockArraysBandedMatricesExt = "BandedMatrices"
 
 [[deps.BoundaryValueDiffEq]]
 deps = ["ADTypes", "ArrayInterface", "BoundaryValueDiffEqAscher", "BoundaryValueDiffEqCore", "BoundaryValueDiffEqFIRK", "BoundaryValueDiffEqMIRK", "BoundaryValueDiffEqMIRKN", "BoundaryValueDiffEqShooting", "DiffEqBase", "FastClosures", "ForwardDiff", "LinearAlgebra", "Reexport", "SciMLBase"]
@@ -648,6 +609,12 @@ deps = ["Static", "StaticArrayInterface"]
 git-tree-sha1 = "05ba0d07cd4fd8b7a39541e31a7b0254704ea581"
 uuid = "fb6a15b2-703c-40df-9091-08a04967cfa9"
 version = "0.1.13"
+
+[[deps.Clustering]]
+deps = ["Distances", "LinearAlgebra", "NearestNeighbors", "Printf", "Random", "SparseArrays", "Statistics", "StatsBase"]
+git-tree-sha1 = "3e22db924e2945282e70c33b75d4dde8bfa44c94"
+uuid = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
+version = "0.15.8"
 
 [[deps.CodecZlib]]
 deps = ["TranscodingStreams", "Zlib_jll"]
@@ -1030,6 +997,18 @@ git-tree-sha1 = "466d45dc38e15794ec7d5d63ec03d776a9aff36e"
 uuid = "b22a6f82-2f65-5046-a5b2-351ab43fb4e5"
 version = "4.4.4+1"
 
+[[deps.FFTW]]
+deps = ["AbstractFFTs", "FFTW_jll", "LinearAlgebra", "MKL_jll", "Preferences", "Reexport"]
+git-tree-sha1 = "7de7c78d681078f027389e067864a8d53bd7c3c9"
+uuid = "7a1cc6ca-52ef-59f5-83cd-3a7055c09341"
+version = "1.8.1"
+
+[[deps.FFTW_jll]]
+deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
+git-tree-sha1 = "4d81ed14783ec49ce9f2e168208a12ce1815aa25"
+uuid = "f5851436-0d7a-5f13-b9de-f02708fd171a"
+version = "3.3.10+3"
+
 [[deps.FastAlmostBandedMatrices]]
 deps = ["ArrayInterface", "ArrayLayouts", "BandedMatrices", "ConcreteStructs", "LazyArrays", "LinearAlgebra", "MatrixFactorizations", "PrecompileTools", "Reexport"]
 git-tree-sha1 = "3f03d94c71126b6cfe20d3cbcc41c5cd27e1c419"
@@ -1246,6 +1225,24 @@ git-tree-sha1 = "2bd56245074fab4015b9174f24ceba8293209053"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.27"
 
+[[deps.Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.4"
+
+[[deps.HypertextLiteral]]
+deps = ["Tricks"]
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.5"
+
+[[deps.IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "0.2.5"
+
 [[deps.IfElse]]
 git-tree-sha1 = "debdd00ffef04665ccbb3e150747a77560e8fad1"
 uuid = "615f187c-cbe4-4ef1-ba3b-2fcf58d6d173"
@@ -1267,6 +1264,16 @@ deps = ["Markdown"]
 uuid = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 version = "1.11.0"
 
+[[deps.Interpolations]]
+deps = ["Adapt", "AxisAlgorithms", "ChainRulesCore", "LinearAlgebra", "OffsetArrays", "Random", "Ratios", "Requires", "SharedArrays", "SparseArrays", "StaticArrays", "WoodburyMatrices"]
+git-tree-sha1 = "88a101217d7cb38a7b481ccd50d21876e1d1b0e0"
+uuid = "a98d9a8b-a2ab-59e6-89dd-64a1c18fca59"
+version = "0.15.1"
+weakdeps = ["Unitful"]
+
+    [deps.Interpolations.extensions]
+    InterpolationsUnitfulExt = "Unitful"
+
 [[deps.InverseFunctions]]
 git-tree-sha1 = "a779299d77cd080bf77b97535acecd73e1c5e5cb"
 uuid = "3587e190-3f89-42d0-90ee-14403ec27112"
@@ -1281,12 +1288,6 @@ weakdeps = ["Dates", "Test"]
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.4"
-
-[[deps.IterativeSolvers]]
-deps = ["LinearAlgebra", "Printf", "Random", "RecipesBase", "SparseArrays"]
-git-tree-sha1 = "59545b0a2b27208b0650df0a46b8e3019f85055b"
-uuid = "42fd0dbc-a981-5370-80f2-aaf504508153"
-version = "0.9.4"
 
 [[deps.IteratorInterfaceExtensions]]
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
@@ -1330,21 +1331,17 @@ uuid = "ccbc3e58-028d-4f4c-8cd5-9ae44345cda5"
 version = "9.14.2"
 weakdeps = ["FastBroadcast"]
 
+[[deps.KernelDensity]]
+deps = ["Distributions", "DocStringExtensions", "FFTW", "Interpolations", "StatsBase"]
+git-tree-sha1 = "7d703202e65efa1369de1279c162b915e245eed1"
+uuid = "5ab0869b-81aa-558d-bb23-cbf5423bbe9b"
+version = "0.6.9"
+
 [[deps.Krylov]]
 deps = ["LinearAlgebra", "Printf", "SparseArrays"]
 git-tree-sha1 = "b29d37ce30fa401a4563b18880ab91f979a29734"
 uuid = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 version = "0.9.10"
-
-[[deps.KrylovKit]]
-deps = ["LinearAlgebra", "PackageExtensionCompat", "Printf", "Random", "VectorInterface"]
-git-tree-sha1 = "d7ed24a88732689f26d3f12a817d181d4024bf44"
-uuid = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
-version = "0.8.3"
-weakdeps = ["ChainRulesCore"]
-
-    [deps.KrylovKit.extensions]
-    KrylovKitChainRulesCoreExt = "ChainRulesCore"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1524,18 +1521,6 @@ deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 version = "1.11.0"
 
-[[deps.LinearMaps]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "7f6be2e4cdaaf558623d93113d6ddade7b916209"
-uuid = "7a12625a-238d-50fd-b39a-03d52299707e"
-version = "3.11.4"
-weakdeps = ["ChainRulesCore", "SparseArrays", "Statistics"]
-
-    [deps.LinearMaps.extensions]
-    LinearMapsChainRulesCoreExt = "ChainRulesCore"
-    LinearMapsSparseArraysExt = "SparseArrays"
-    LinearMapsStatisticsExt = "Statistics"
-
 [[deps.LinearSolve]]
 deps = ["ArrayInterface", "ChainRulesCore", "ConcreteStructs", "DocStringExtensions", "EnumX", "GPUArraysCore", "InteractiveUtils", "Krylov", "LazyArrays", "Libdl", "LinearAlgebra", "MKL_jll", "Markdown", "PrecompileTools", "Preferences", "RecursiveArrayTools", "Reexport", "SciMLBase", "SciMLOperators", "Setfield", "StaticArraysCore", "UnPack"]
 git-tree-sha1 = "6e975dea0fc1825ef3bc83c11281fdf745a69a43"
@@ -1686,6 +1671,12 @@ git-tree-sha1 = "cac9cc5499c25554cba55cd3c30543cff5ca4fab"
 uuid = "46d2c3a1-f734-5fdb-9937-b9b9aeba4221"
 version = "0.2.4"
 
+[[deps.MultivariateStats]]
+deps = ["Arpack", "Distributions", "LinearAlgebra", "SparseArrays", "Statistics", "StatsAPI", "StatsBase"]
+git-tree-sha1 = "816620e3aac93e5b5359e4fdaf23ca4525b00ddf"
+uuid = "6f286f6a-111f-5878-ab1e-185364afe411"
+version = "0.10.3"
+
 [[deps.NLSolversBase]]
 deps = ["DiffResults", "Distributed", "FiniteDiff", "ForwardDiff"]
 git-tree-sha1 = "a0b464d183da839699f4c79e7606d9d186ec172c"
@@ -1703,6 +1694,12 @@ deps = ["OpenLibm_jll"]
 git-tree-sha1 = "cc0a5deefdb12ab3a096f00a6d42133af4560d71"
 uuid = "77ba4419-2d1f-58cd-9bb1-8ffee604a2e3"
 version = "1.1.2"
+
+[[deps.NearestNeighbors]]
+deps = ["Distances", "StaticArrays"]
+git-tree-sha1 = "8a3271d8309285f4db73b4f662b1b290c715e85e"
+uuid = "b8a86587-4115-5ab1-83bc-aa920d37bbce"
+version = "0.4.21"
 
 [[deps.NetworkOptions]]
 uuid = "ca575930-c2e3-43a9-ace4-1e988b2c1908"
@@ -1781,6 +1778,20 @@ weakdeps = ["ForwardDiff"]
 
     [deps.NonlinearSolveSpectralMethods.extensions]
     NonlinearSolveSpectralMethodsForwardDiffExt = "ForwardDiff"
+
+[[deps.Observables]]
+git-tree-sha1 = "7438a59546cf62428fc9d1bc94729146d37a7225"
+uuid = "510215fc-4207-5dde-b226-833fc4488ee2"
+version = "0.5.5"
+
+[[deps.OffsetArrays]]
+git-tree-sha1 = "a414039192a155fb38c4599a60110f0018c6ec82"
+uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
+version = "1.16.0"
+weakdeps = ["Adapt"]
+
+    [deps.OffsetArrays.extensions]
+    OffsetArraysAdaptExt = "Adapt"
 
 [[deps.Ogg_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -2116,6 +2127,12 @@ version = "1.40.9"
     ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
+[[deps.PlutoUI]]
+deps = ["AbstractPlutoDingetjes", "Base64", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
+git-tree-sha1 = "5152abbdab6488d5eec6a01029ca6697dff4ec8f"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.23"
+
 [[deps.PoissonRandom]]
 deps = ["Random"]
 git-tree-sha1 = "a0f1159c33f846aa77c3f30ebbc69795e5327152"
@@ -2233,6 +2250,16 @@ deps = ["Random"]
 git-tree-sha1 = "c6ec94d2aaba1ab2ff983052cf6a606ca5985902"
 uuid = "e6cf234a-135c-5ec9-84dd-332b85af5143"
 version = "1.6.0"
+
+[[deps.Ratios]]
+deps = ["Requires"]
+git-tree-sha1 = "1342a47bf3260ee108163042310d26f2be5ec90b"
+uuid = "c84ed2f1-dad5-54f0-aa8e-dbefe2724439"
+version = "0.4.5"
+weakdeps = ["FixedPointNumbers"]
+
+    [deps.Ratios.extensions]
+    RatiosFixedPointNumbersExt = "FixedPointNumbers"
 
 [[deps.RecipesBase]]
 deps = ["PrecompileTools"]
@@ -2379,6 +2406,12 @@ deps = ["Dates"]
 git-tree-sha1 = "3bac05bc7e74a75fd9cba4295cde4045d9fe2386"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.2.1"
+
+[[deps.SentinelArrays]]
+deps = ["Dates", "Random"]
+git-tree-sha1 = "712fb0231ee6f9120e005ccd56297abbc053e7e0"
+uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
+version = "1.4.8"
 
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
@@ -2527,14 +2560,11 @@ deps = ["ArrayInterface", "Compat", "IfElse", "LinearAlgebra", "PrecompileTools"
 git-tree-sha1 = "96381d50f1ce85f2663584c8e886a6ca97e60554"
 uuid = "0d7ed370-da01-4f52-bd93-41d350b8b718"
 version = "1.8.0"
+weakdeps = ["OffsetArrays", "StaticArrays"]
 
     [deps.StaticArrayInterface.extensions]
     StaticArrayInterfaceOffsetArraysExt = "OffsetArrays"
     StaticArrayInterfaceStaticArraysExt = "StaticArrays"
-
-    [deps.StaticArrayInterface.weakdeps]
-    OffsetArrays = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
-    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.StaticArrays]]
 deps = ["LinearAlgebra", "PrecompileTools", "Random", "StaticArraysCore"]
@@ -2585,6 +2615,12 @@ weakdeps = ["ChainRulesCore", "InverseFunctions"]
     StatsFunsChainRulesCoreExt = "ChainRulesCore"
     StatsFunsInverseFunctionsExt = "InverseFunctions"
 
+[[deps.StatsPlots]]
+deps = ["AbstractFFTs", "Clustering", "DataStructures", "Distributions", "Interpolations", "KernelDensity", "LinearAlgebra", "MultivariateStats", "NaNMath", "Observables", "Plots", "RecipesBase", "RecipesPipeline", "Reexport", "StatsBase", "TableOperations", "Tables", "Widgets"]
+git-tree-sha1 = "3b1dcbf62e469a67f6733ae493401e53d92ff543"
+uuid = "f3b207a7-027a-5e70-b257-86293d7955fd"
+version = "0.15.7"
+
 [[deps.SteadyStateDiffEq]]
 deps = ["ConcreteStructs", "DiffEqBase", "DiffEqCallbacks", "LinearAlgebra", "Reexport", "SciMLBase"]
 git-tree-sha1 = "920acf6ae36c86f23969fea1d317e040dbfccf53"
@@ -2602,27 +2638,6 @@ deps = ["ArrayInterface", "CloseOpenIntervals", "IfElse", "LayoutPointers", "Lin
 git-tree-sha1 = "f35f6ab602df8413a50c4a25ca14de821e8605fb"
 uuid = "7792a7ef-975c-4747-a70f-980b88e8d1da"
 version = "0.5.7"
-
-[[deps.StructArrays]]
-deps = ["ConstructionBase", "DataAPI", "Tables"]
-git-tree-sha1 = "9537ef82c42cdd8c5d443cbc359110cbb36bae10"
-uuid = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-version = "0.6.21"
-
-    [deps.StructArrays.extensions]
-    StructArraysAdaptExt = "Adapt"
-    StructArraysGPUArraysCoreExt = ["GPUArraysCore", "KernelAbstractions"]
-    StructArraysLinearAlgebraExt = "LinearAlgebra"
-    StructArraysSparseArraysExt = "SparseArrays"
-    StructArraysStaticArraysExt = "StaticArrays"
-
-    [deps.StructArrays.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-    GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
-    KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
@@ -2659,6 +2674,12 @@ version = "0.3.38"
 deps = ["Dates"]
 uuid = "fa267f1f-6049-4f14-aa54-33bafae1ed76"
 version = "1.0.3"
+
+[[deps.TableOperations]]
+deps = ["SentinelArrays", "Tables", "Test"]
+git-tree-sha1 = "e383c87cf2a1dc41fa30c093b2a19877c83e1bc1"
+uuid = "ab02a1b2-a7df-11e8-156e-fb1833f50b87"
+version = "1.2.0"
 
 [[deps.TableTraits]]
 deps = ["IteratorInterfaceExtensions"]
@@ -2710,6 +2731,11 @@ version = "0.5.28"
 git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.11.3"
+
+[[deps.Tricks]]
+git-tree-sha1 = "6cae795a5a9313bbb4f60683f7263318fc7d1505"
+uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
+version = "0.1.10"
 
 [[deps.TruncatedStacktraces]]
 deps = ["InteractiveUtils", "MacroTools", "Preferences"]
@@ -2764,12 +2790,6 @@ git-tree-sha1 = "ca0969166a028236229f63514992fc073799bb78"
 uuid = "41fe7b60-77ed-43a1-b4f0-825fd5a5650d"
 version = "0.2.0"
 
-[[deps.VectorInterface]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "cea8abaa6e43f72f97a09cf95b80c9eb53ff75cf"
-uuid = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
-version = "0.4.9"
-
 [[deps.VertexSafeGraphs]]
 deps = ["Graphs"]
 git-tree-sha1 = "8351f8d73d7e880bfc042a8b6922684ebeafb35c"
@@ -2793,6 +2813,18 @@ deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
 git-tree-sha1 = "5db3e9d307d32baba7067b13fc7b5aa6edd4a19a"
 uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
 version = "1.36.0+0"
+
+[[deps.Widgets]]
+deps = ["Colors", "Dates", "Observables", "OrderedCollections"]
+git-tree-sha1 = "e9aeb174f95385de31e70bd15fa066a505ea82b9"
+uuid = "cc8bc4a8-27d6-5769-a93b-9d913e69aa62"
+version = "0.6.7"
+
+[[deps.WoodburyMatrices]]
+deps = ["LinearAlgebra", "SparseArrays"]
+git-tree-sha1 = "c1a7aa6219628fcd757dede0ca95e245c5cd9511"
+uuid = "efce3f68-66dc-5838-9240-27a6d6f5f9b6"
+version = "1.0.0"
 
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
@@ -3082,31 +3114,27 @@ version = "1.4.1+2"
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
-# ╠═e6a0eca9-b97b-493b-8d37-fdd939516580
-# ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
-# ╠═92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
+# ╠═1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
+# ╠═2599bfdb-77f3-43be-8a7c-eb78dacad3b7
+# ╠═c38c5074-3ce7-4d20-803d-d49bb4e637d9
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
 # ╠═30501e41-cfcb-48bf-9061-0d2102a5c7f6
-# ╟─d8bf1fbc-3834-48b1-a5c5-1e3d259f5d21
-# ╟─14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
+# ╠═14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
 # ╠═20749723-db83-49d0-b414-738199bd7656
 # ╠═7c9b025a-9d25-4e56-a3c9-a7e910011263
-# ╠═283b26d2-7a12-40a1-9c8d-b4dafc8c94d1
 # ╠═335b90e4-748b-4f78-bef4-a1902abd83b9
-# ╠═f1b5805a-c41b-4947-8d39-c7e2794ee999
-# ╠═04df6fb9-902c-43b4-b039-e4efaa4192a3
+# ╠═b6370869-f4e2-4462-9955-0f68db81680f
 # ╠═96687775-8f32-4fa8-9ea9-1d297e1b3305
-# ╠═9b1900f1-8f7d-4e85-b55a-56f79fd24805
-# ╠═50738757-002d-4a71-9aae-595fc3207681
-# ╠═6bdffa2d-07c2-4f37-8a9c-b39a3b3ca605
-# ╠═ab5e9fdb-4ea4-48eb-90c0-f2c49e9e2fbe
-# ╠═a942bf23-3d95-462c-b48d-48d9e45184a9
-# ╠═4a8606a3-c0e6-40b3-9bcf-37650764ec5d
-# ╠═8a6ebe57-836c-4618-bada-9b66575ffbc4
+# ╠═867a194c-1904-4054-906e-1ae9e14a0811
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
-# ╠═ca1f3992-f945-4377-bc6c-74a682b30afd
-# ╠═09ee9194-33f5-4abb-98ff-9c49a0f85168
-# ╠═073d97d6-b974-4b9a-ac33-f2e0ada15926
-# ╠═7a9801e3-1f00-4d0f-b2b2-13a6f3041f09
+# ╟─9b28cefd-df65-4683-8526-0a3b1ebfef4c
+# ╠═26479215-f6bf-4af3-9a56-a84cb1726bb8
+# ╠═af16fd92-6748-4a3d-970c-b022a51f3c82
+# ╠═17ea3c89-0ef3-46d7-b4a4-2bbf5f5ec72b
+# ╠═8a4bf031-874b-4c6f-8896-b63df1624705
+# ╠═e438df90-4962-4fb7-8acf-63f660d80561
+# ╟─8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
+# ╠═0f72db21-f27a-4492-9337-8948bc94d382
+# ╠═b04a402f-9a26-4659-87f6-7e70ffa643fc
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

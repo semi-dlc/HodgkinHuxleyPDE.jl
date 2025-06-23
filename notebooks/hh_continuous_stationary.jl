@@ -17,17 +17,105 @@ begin
 	#using BifurcationKit
 end
 
-# ╔═╡ 1b979681-3a7b-4041-95e0-461aa5cd54bb
+# ╔═╡ df8b3d29-c311-4a35-8db6-fb9446e94e45
+	# Time span
+	tspan = (0.0, 200.0)
+
+# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
+@show u0
+
+# ╔═╡ 20749723-db83-49d0-b414-738199bd7656
+# function to record information from a solution
+recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
+
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
+
+# ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
+
+
+# ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
+T = 6.3
+
+# ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
+md"Even under correct initialization of initial values (n_inf(V_rest) ..), a singular spike can be achieved with a certain amount of current (~0.375)"
+
+# ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
+md"Find Stationary points"
+
+# ╔═╡ 25e786b0-bafc-4c9c-9dfa-7d8f264217c7
+V_test = -65.
+
+# ╔═╡ 11a2316f-73c5-4942-b8ca-cba41b894949
+I = 9.
+
+# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
 begin
-	alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
-	beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
+	# Define parameters
+	gK = 36.0
+	gNa = 120.0
+	gL = 0.3
+	EK = -77.0
+	ENa = 55.0
+	EL = -65.
+	C = 1.
+
+	V_rest = -65.00  # See to which value it converges in steady state
+	temperature_factor(t) = 3^((t - 6.3) / 10)
 	
-	# Sodium ion-channel rate functions
-	alpha_m(v) = (0.182 * (v + 35.0)) / (1.0 - exp((-1.0 * (v + 35.0)) / 9.0))
-	beta_m(v) = (-0.124 * (v + 35.0)) / (1.0 - exp((v + 35.0) / 9.0))
+	temp_factor = temperature_factor(T)
 	
-	alpha_h(v) = 0.25 * exp((-1.0 * (v + 90.0)) / 12.0)
-	beta_h(v) = (0.25 * exp((v + 62.0) / 6.0)) / exp((v + 90.0) / 12.0)
+	p = (
+	gK=gK, 
+	gNa=gNa, 
+	gL=gL, 
+	EK=EK, 
+	ENa=ENa, 
+	EL=EL, 
+	T=temp_factor,
+	C=C, 
+	I=I
+	)
+
+	function alpha_n(v)
+		    vred = v - V_rest
+		    A_n = exp((-vred+10.0)/10.0)
+		    return 0.01 * (-vred + 10.0) / (A_n - 1.0)
+		end
+	
+	    function beta_n(v)
+		    vred = v - V_rest
+		    return 0.125 * exp(-vred/80.0)
+		end
+		
+	    function alpha_m(v)
+		    vred = v - V_rest
+		    A_m = exp((-vred+25.0)/10.0)
+		    return 0.1 * (-vred + 25.0) / (A_m - 1.0)
+		end
+	
+	    function beta_m(v)
+		    vred = v - V_rest
+		    return 4.0 * exp(-vred/18.0)
+		end
+	
+	    function alpha_h(v)
+		    vred = v - V_rest
+		    return 0.07 * exp(-vred/20.0)
+		end
+		
+	    function beta_h(v)
+	        vred = v - V_rest
+	        B_h = exp((-vred+30.0)/10.0)
+		    return 1.0 / (B_h + 1.0)
+		end
+
+	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
+	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
+	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
+
+	
+
 end
 
 # ╔═╡ ac95a68b-9590-4bbe-b661-417d7b06cc40
@@ -48,15 +136,6 @@ function hh!(du, u, p, t)
 end
 
 
-# ╔═╡ 92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
-begin
-	n_inf(v) = alpha_n(v) / (alpha_n(v) + beta_n(v))
-	m_inf(v) = alpha_m(v) / (alpha_m(v) + beta_m(v))
-	h_inf(v) = alpha_h(v) / (alpha_h(v) + beta_h(v))
-
-	temperature_factor(t) = 3^((t - 6.3) / 10)
-end
-
 # ╔═╡ 09377048-ce60-4383-949f-ce2a05735b72
 begin
 	# Jacobian of H.H. Model by AD
@@ -69,63 +148,11 @@ begin
 	D_hh(u0, p) = ForwardDiff.jacobian(u -> hh(u, p), u0)
 end
 
-# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-@show u0
-
-# ╔═╡ 20749723-db83-49d0-b414-738199bd7656
-# function to record information from a solution
-recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
-
-# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
-@info T
-
-# ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-I = 0. # 0.400
-
-# ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
-T = 6.3
-
-# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
-begin
-	# Define parameters
-	gK = 36.0
-	gNa = 40.0
-	gL = 0.3
-	EK = -77.0
-	ENa = 55.0
-	EL = -65.
-	C = 1.
-
-	V_rest = -63.  # See to which value it converges in steady state
-
-	
-	temp_factor = temperature_factor(T)
-	
-	p = (
-	gK=gK, 
-	gNa=gNa, 
-	gL=gL, 
-	EK=EK, 
-	ENa=ENa, 
-	EL=EL, 
-	T=temp_factor,
-	C=C, 
-	I=I
-	)
-end
-
 # ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
 begin
 	# Initial conditions
-	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
-	
-	# Time span
-	tspan = (0.0, 100.0)
-	
+	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]	
 end
-
-# ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
-md"Even under correct initialization of initial values (n_inf(V_rest) ..), a singular spike can be achieved with a certain amount of current (~0.375)"
 
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
 begin
@@ -151,18 +178,15 @@ plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", lab
 
 
 # ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
-plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"])
+p_gating = plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"])
 
 # ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
 begin
 	# Plot phase diagrams
-	plot(V_vals, m_vals, label="V vs m", xlabel="Voltage (mV)", ylabel="Gating Variable", title="Phase Plot V-m")
+	p_phase = plot(V_vals, m_vals, label="V vs m", xlabel="Voltage (mV)", ylabel="Gating Variable", title="Phase Plot V-m")
 	plot!(V_vals, h_vals, label="V vs h")
 	plot!(V_vals, n_vals, label="V vs n")
 end
-
-# ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
-md"Find Stationary points"
 
 # ╔═╡ 7eae8964-b75c-455a-a2ab-7bf049dd7c4f
 p_stat = (
@@ -174,7 +198,7 @@ p_stat = (
 	EL=EL, 
 	T=temp_factor,
 	C=C, 
-	I=0.
+	I=I
 	)
 
 # ╔═╡ 95fb071c-0c2b-47c1-af58-09999ddbcbb2
@@ -193,7 +217,11 @@ function J_HH_!(J, u)
 end
 
 # ╔═╡ a9f7dcfa-f89d-4dae-8cfb-d48cf730a4de
-sol_stationary = nlsolve(HH_!, J_HH_!, [-10., 0.2, 0.3, 0.3])
+
+sol_stationary = nlsolve(HH_!, [V_test, n_inf(V_test), m_inf(V_test), h_inf(V_test)], autodiff = :forward)
+
+# ╔═╡ ec9ce239-1134-44a6-b4db-1141664c4edc
+V_0, n_0, m_0, h_0 = sol_stationary.zero
 
 # ╔═╡ f0d35d7c-1627-4605-a391-0fc4947c3d3e
 println("Stationary solution found: ", sol_stationary.zero)
@@ -202,21 +230,15 @@ println("Stationary solution found: ", sol_stationary.zero)
 # ╔═╡ 40bacb8f-1b04-4b92-b6c2-98b5397dee8c
 jacob = D_hh(sol_stationary.zero, p_stat)
 
-# ╔═╡ 785d267f-bf51-4824-bece-2930e9603955
-md"
-Indeed, the branch is determined by solving the equation system. I will be searching for different stationary solutions by trying different initial guesses.
-"
-
 # ╔═╡ f5c6be2a-6a16-4619-898f-3c73ff060470
 λ_jacob = eigen(jacob).values
 
 # ╔═╡ acf70875-b65f-4f6e-89e7-aeccf23496ad
 begin
-	# Check real parts
 	println("Eigenvalues of the Jacobian at steady state:")
 	println(λ_jacob)
 	
-	# Stability classification
+	# Stability: Re(λ) .< 0 ?
 	if all(real.(λ_jacob) .< 0)
 	    println("The stationary point is LOCALLY STABLE (asymptotically).")
 	elseif any(real.(λ_jacob) .> 0)
@@ -230,12 +252,11 @@ end
 begin
 	# Define the problem
 	
-	probODE_2 = ODEProblem(hh!, sol_stationary.zero, tspan, p_stat)
+	#probODE_2 = ODEProblem(hh!, sol_stationary.zero .+ 10e-5, tspan, p_stat)
+	probODE_2 = ODEProblem(hh!, u0, tspan, p_stat)
 	
 	# Solve the ODE
 	sol_2 = solve(probODE_2, Rosenbrock23())
-
-	
 
 end
 
@@ -245,7 +266,39 @@ plot(sol_2, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", l
 
 
 # ╔═╡ 9a934e1d-9fbb-41ea-85f2-2d51d808e363
-plot(sol_2, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"])
+p_steady = plot(sol_2, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], linestyle=:dash) 
+
+# ╔═╡ be22fd07-4947-4fe1-bd3b-87859531b327
+plot!(p_steady, sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"])
+
+# ╔═╡ fe6d1ad7-171f-4ad9-a498-b8836faa18aa
+begin
+	scatter!(p_phase, [V_0], [n_0], label="n0", markersize=4, marker=:x)
+	scatter!(p_phase, [V_0], [m_0], label="m0", markersize=4,marker=:x)
+	scatter!(p_phase, [V_0], [h_0], label="h0", markersize=4,marker=:x)
+end
+
+# ╔═╡ 858fbbde-c144-4c1b-aba5-90e741e44e45
+V_eq_buffer = []
+
+# ╔═╡ c5d365ee-6a31-4a0b-bc27-48eb6ab0eb7a
+V_range_test = LinRange(-65., 35., 202)
+
+# ╔═╡ 1457e57b-e1fa-4412-ad52-7c8a2f2cd87c
+for i in V_range_test
+	V = Float64(nlsolve(HH_!, J_HH_!, [i, n_inf(i), m_inf(i), h_inf(i)], method=:newton).zero[1])
+	@show i
+	append!(V_eq_buffer, V)
+end
+
+# ╔═╡ ce7f5b9f-17d7-4048-a0f8-56d03f23c5de
+V_eq_buffer
+
+# ╔═╡ 5d6401b6-c9b4-4adb-af1f-12b93c37a871
+plot(V_range_test, V_eq_buffer)
+
+# ╔═╡ b33818d7-8787-4353-8460-fa6f5da02844
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2922,10 +2975,9 @@ version = "1.4.1+2"
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
-# ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
-# ╠═92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
 # ╠═30501e41-cfcb-48bf-9061-0d2102a5c7f6
+# ╠═df8b3d29-c311-4a35-8db6-fb9446e94e45
 # ╠═09377048-ce60-4383-949f-ce2a05735b72
 # ╠═14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
 # ╟─20749723-db83-49d0-b414-738199bd7656
@@ -2939,16 +2991,26 @@ version = "1.4.1+2"
 # ╠═c50c1f50-f271-47a1-a95b-38a858934201
 # ╠═8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 # ╠═7eae8964-b75c-455a-a2ab-7bf049dd7c4f
-# ╠═95fb071c-0c2b-47c1-af58-09999ddbcbb2
-# ╠═574dc478-b48a-4873-9d30-26577affd31a
+# ╟─95fb071c-0c2b-47c1-af58-09999ddbcbb2
+# ╟─574dc478-b48a-4873-9d30-26577affd31a
+# ╠═25e786b0-bafc-4c9c-9dfa-7d8f264217c7
+# ╠═11a2316f-73c5-4942-b8ca-cba41b894949
 # ╠═a9f7dcfa-f89d-4dae-8cfb-d48cf730a4de
+# ╠═ec9ce239-1134-44a6-b4db-1141664c4edc
 # ╠═f0d35d7c-1627-4605-a391-0fc4947c3d3e
 # ╠═40bacb8f-1b04-4b92-b6c2-98b5397dee8c
-# ╠═785d267f-bf51-4824-bece-2930e9603955
-# ╠═f5c6be2a-6a16-4619-898f-3c73ff060470
-# ╠═acf70875-b65f-4f6e-89e7-aeccf23496ad
+# ╟─f5c6be2a-6a16-4619-898f-3c73ff060470
+# ╟─acf70875-b65f-4f6e-89e7-aeccf23496ad
 # ╠═f2e28d5f-1eb4-4d35-9212-823d07487f77
 # ╠═5314c111-bbaf-49b3-aadd-dbbcb98b82d7
 # ╠═9a934e1d-9fbb-41ea-85f2-2d51d808e363
+# ╠═be22fd07-4947-4fe1-bd3b-87859531b327
+# ╠═fe6d1ad7-171f-4ad9-a498-b8836faa18aa
+# ╠═858fbbde-c144-4c1b-aba5-90e741e44e45
+# ╠═c5d365ee-6a31-4a0b-bc27-48eb6ab0eb7a
+# ╠═1457e57b-e1fa-4412-ad52-7c8a2f2cd87c
+# ╠═ce7f5b9f-17d7-4048-a0f8-56d03f23c5de
+# ╠═5d6401b6-c9b4-4adb-af1f-12b93c37a871
+# ╠═b33818d7-8787-4353-8460-fa6f5da02844
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

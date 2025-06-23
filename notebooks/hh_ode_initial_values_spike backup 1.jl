@@ -4,16 +4,30 @@
 using Markdown
 using InteractiveUtils
 
+# This Pluto notebook uses @bind for interactivity. When running this notebook outside of Pluto, the following 'mock version' of @bind gives bound variables a default value (instead of an error).
+macro bind(def, element)
+    #! format: off
+    quote
+        local iv = try Base.loaded_modules[Base.PkgId(Base.UUID("6e696c72-6542-2067-7265-42206c756150"), "AbstractPlutoDingetjes")].Bonds.initial_value catch; b -> missing; end
+        local el = $(esc(element))
+        global $(esc(def)) = Core.applicable(Base.get, el) ? Base.get(el) : iv(el)
+        el
+    end
+    #! format: on
+end
+
 # ╔═╡ e54bf1f7-a451-4933-88d6-c0d8171dd040
 begin
 	using DifferentialEquations
 	using Plots
-	using BifurcationKit
+	using PlutoUI
 	using ForwardDiff
+	using NLsolve
+	using LinearAlgebra
+	#using DataFrames
+	#using CSV
+	#using BifurcationKit
 end
-
-# ╔═╡ e6a0eca9-b97b-493b-8d37-fdd939516580
-
 
 # ╔═╡ 1b979681-3a7b-4041-95e0-461aa5cd54bb
 begin
@@ -30,18 +44,22 @@ end
 
 # ╔═╡ ac95a68b-9590-4bbe-b661-417d7b06cc40
 # Define the Hodgkin-Huxley model
-function hh!(du, u, p, t=0)
+function hh!(du, u, p, t)
     # Extract parameters
-    (;gK, gNa, gL, EK, ENa, EL, C, I) = p
+    (;gK, gNa, gL, EK, ENa, EL, T, C, I) = p
+
+	if t < 100
+		I = 0
+	end
 
     # Extract state variables
     v, n, m, h = u
 
     # Define the ODEs
     du[1] = (-(gK * (n^4.0) * (v - EK)) - (gNa * (m^3.0) * h * (v - ENa)) - (gL * (v - EL)) + I) / C
-    du[2] =  (alpha_n(v) * (1.0 - n)) - (beta_n(v) * n)
-    du[3] =  (alpha_m(v) * (1.0 - m)) - (beta_m(v) * m)
-    du[4] =  (alpha_h(v) * (1.0 - h)) - (beta_h(v) * h)
+    du[2] =  T * (alpha_n(v) * (1.0 - n)) - (beta_n(v) * n)
+    du[3] =  T * (alpha_m(v) * (1.0 - m)) - (beta_m(v) * m)
+    du[4] =  T * (alpha_h(v) * (1.0 - h)) - (beta_h(v) * h)
 	du
 end
 
@@ -55,6 +73,28 @@ begin
 	temperature_factor(t) = 3^((t - 6.3) / 10)
 end
 
+# ╔═╡ 09377048-ce60-4383-949f-ce2a05735b72
+begin
+	# Jacobian of H.H. Model by AD
+	# Wrap hh! into non-in-place hh
+	function hh(u, p, t=0)
+	    du = similar(u)
+	    hh!(du, u, p, t)
+	    return du
+	end
+	D_hh(u0, p) = ForwardDiff.jacobian(u -> hh(u, p), u0)
+end
+
+# ╔═╡ 20749723-db83-49d0-b414-738199bd7656
+# function to record information from a solution
+recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
+
+# ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
+I = 0.
+
+# ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
+T = 6.3
+
 # ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
 begin
 	# Define parameters
@@ -66,11 +106,10 @@ begin
 	EL = -65.
 	C = 1.
 
-	V_rest = -63.
+	#V_rest = -63.05  # See to which value it converges in steady state
 
-	T=29.
+	
 	temp_factor = temperature_factor(T)
-	I=0.
 	
 	p = (
 	gK=gK, 
@@ -85,285 +124,113 @@ begin
 	)
 end
 
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
+
+# ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
+md"Even under correct initialization of initial values (n_inf(V_rest) ..), a singular spike can be achieved with a certain amount of current (~0.375)"
+
+# ╔═╡ 739989c1-fac5-4187-a346-bf9c9275d94d
+@bind V_rest Slider(-70.:0.1:30.; show_value = true)
+
 # ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
 begin
 	# Initial conditions
 	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
 	
 	# Time span
-	tspan = (0.0, 200.0)
+	tspan = (0.0, 500.0)
 	
-	
-end
-
-# ╔═╡ d8bf1fbc-3834-48b1-a5c5-1e3d259f5d21
-begin
-	# Jacobian of H.H. Model by AD
-
-	# Wrap hh! into non-in-place hh
-	function hh(u, p, t=0)
-	    du = similar(u)
-	    hh!(du, u, p, t)
-	    return du
-	end
-	D_hh_AD(u0, p) = ForwardDiff.jacobian(u -> hh(u, p), u0)
 end
 
 # ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-begin
-	# Jacobian of Hodgkin Huxley model by explicit differentiation
-	
-	function d_alpha_n(v)
-	    u = v - 25.0
-	    A = 1.0 - exp(-u/9)
-	    return 0.02 * (A - u * (exp(-u/9)/9)) / (A^2)
-	end
-	
-	function d_beta_n(v)
-	    u = v - 25.0
-	    B = 1.0 - exp(u/9)
-	    return -0.002 * (B - u * (exp(u/9)/9)) / (B^2)
-	end
-	
-	function d_alpha_m(v)
-	    u = v + 35.0
-	    A = 1.0 - exp(-u/9)
-	    return 0.182 * (A - u * (exp(-u/9)/9)) / (A^2)
-	end
-	
-	function d_beta_m(v)
-	    u = v + 35.0
-	    B = 1.0 - exp(u/9)
-	    return -0.124 * (B - u * (exp(u/9)/9)) / (B^2)
-	end
-	
-	function d_alpha_h(v)
-	    return - (0.25/12) * exp(-(v+90)/12)
-	end
-	
-	function d_beta_h(v)
-	    return (0.25/12) * exp((v+34)/12)
-	end
-	
-	# Jacobian function for the Hodgkin-Huxley model
-	function D_hh(u, p, t=0)
-	    # Unpack parameters
-	    (;gK, gNa, gL, EK, ENa, EL, C, I) = p
-	    # Unpack state variables: v, n, m, h
-	    v, n, m, h = u
-
-		J = zeros((4,4))
-	
-	    # Equation 1: Voltage dynamics
-	    # f₁ = ( -gK*n^4*(v - EK) - gNa*m^3*h*(v - ENa) - gL*(v - EL) + I ) / C
-	    J[1,1] = (-gK * n^4 - gNa * m^3 * h - gL) / C
-	    J[1,2] = -(4 * gK * n^3 * (v - EK)) / C
-	    J[1,3] = -(3 * gNa * m^2 * h * (v - ENa)) / C
-	    J[1,4] = -(gNa * m^3 * (v - ENa)) / C
-	
-	    # Equation 2: n dynamics
-	    # f₂ = αₙ(v) * (1 - n) - βₙ(v) * n
-	    J[2,1] = d_alpha_n(v) * (1 - n) - d_beta_n(v) * n
-	    J[2,2] = -alpha_n(v) - beta_n(v)
-	    J[2,3] = 0.0
-	    J[2,4] = 0.0
-	
-	    # Equation 3: m dynamics
-	    # f₃ = αₘ(v) * (1 - m) - βₘ(v) * m
-	    J[3,1] = d_alpha_m(v) * (1 - m) - d_beta_m(v) * m
-	    J[3,2] = 0.0
-	    J[3,3] = -alpha_m(v) - beta_m(v)
-	    J[3,4] = 0.0
-	
-	    # Equation 4: h dynamics
-	    # h'(v) = αₕ(v) * (1 - h) - βₕ(v) * h
-	    J[4,1] = d_alpha_h(v) * (1 - h) - d_beta_h(v) * h
-	    J[4,2] = 0.0
-	    J[4,3] = 0.0
-	    J[4,4] = -alpha_h(v) - beta_h(v)
-	
-	    return J
-	end
-	
-end
-
-# ╔═╡ 20749723-db83-49d0-b414-738199bd7656
-# function to record information from a solution
-recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
-
-# ╔═╡ 335b90e4-748b-4f78-bef4-a1902abd83b9
-# continuation options
-opts_br = ContinuationPar(
-	p_min = -2.0, 
-	p_max = 10.0, 
-	ds=-0.002,
-	dsmax = 0.02,
-	n_inversion = 8, 
-	detect_bifurcation = 3,
-	# number of eigenvalues
-	nev = 6,
-	# maximum number of continuation steps
-	max_steps = 1000
-	)
-
-# ╔═╡ f1b5805a-c41b-4947-8d39-c7e2794ee999
-#=╠═╡
-# Equiblirium continuation 
-br = continuation(prob, PALC(), opts_br, bothside = true)
-  ╠═╡ =#
-
-# ╔═╡ 04df6fb9-902c-43b4-b039-e4efaa4192a3
-@show br_po1
-
-# ╔═╡ 96687775-8f32-4fa8-9ea9-1d297e1b3305
-#=╠═╡
-scene = plot(br; code = (), legend = true)
-  ╠═╡ =#
-
-# ╔═╡ 9b1900f1-8f7d-4e85-b55a-56f79fd24805
-opts_orbit = ContinuationPar(
-	p_min = 0.1, 
-	p_max = 3.0, 
-	ds=1.e-3,
-	dsmin=1.e-6,
-	dsmax = 0.02,
-	n_inversion = 8, 
-	detect_bifurcation = 3,
-	# number of eigenvalues
-	nev = 8,
-	# maximum number of continuation steps
-	max_steps = 1000
-	)
-
-# ╔═╡ 50738757-002d-4a71-9aae-595fc3207681
-#=╠═╡
-# Finding periodic orbits based from Hopf bifurcation point at I = 2.8
-br_po1 = continuation(
-		br, 
-		2, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitTrapProblem(M=30),
-		nev=6,
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ 6bdffa2d-07c2-4f37-8a9c-b39a3b3ca605
-#=╠═╡
-br_po2 = continuation(
-		br, 
-		2, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitOCollProblem(20, 5),
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ ab5e9fdb-4ea4-48eb-90c0-f2c49e9e2fbe
-#=╠═╡
-plot(br, br_po1, branchlabel = ["equib" "periodic orbits"])#, xlims=[-2, 3.], ylims=[-65., 50.])
-# How is u1 / V calculated? average/min/max? 
-  ╠═╡ =#
-
-# ╔═╡ a942bf23-3d95-462c-b48d-48d9e45184a9
-#=╠═╡
-plot(br, br_po2, branchlabel = ["equib" "periodic orbits"])#, xlims=[-2, 3.], ylims=[-65., 50.])
-# How is u1 / V calculated? average/min/max? 
-  ╠═╡ =#
-
-# ╔═╡ 4a8606a3-c0e6-40b3-9bcf-37650764ec5d
-#=╠═╡
-br_po3 = continuation(
-		br_po1, 
-		8, 
-		opts_orbit,
-		δp= 0.00002,
-        PeriodicOrbitTrapProblem(M=30),
-		nev=6,
-		bothside=true
-        )
-  ╠═╡ =#
-
-# ╔═╡ 8a6ebe57-836c-4618-bada-9b66575ffbc4
-# ╠═╡ disabled = true
-#=╠═╡
-plot(br, br_po2, branchlabel = ["equib" "periodic orbits"])#, xlims=[0.35, 0.41], ylims=[-65., -50.])
-# How is u1 / V calculated? average/min/max? 
-  ╠═╡ =#
+@show u0
 
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
-# ╠═╡ disabled = true
-#=╠═╡
 begin
 	# Define the problem
 	
 	probODE = ODEProblem(hh!, u0, tspan, p)
 	
 	# Solve the ODE
-	sol = solve(probODE, Tsit5())
-	
-	# Plot the results
-	plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+	sol = solve(probODE, Rosenbrock23())
 
-	# Plot the results
-	plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label="n,m,h")
-	
+	# Extract solution components
+	t_vals = sol.t                     # Time values
+	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
+	m_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
+	h_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
+	n_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
 	
 end
-  ╠═╡ =#
 
-# ╔═╡ ca1f3992-f945-4377-bc6c-74a682b30afd
-#=╠═╡
-sol1 = get_periodic_orbit(br_po1, 200) # get periodic orbit of br_po1 (detecting from second hopf bifurcation at the 4-th point)
-  ╠═╡ =#
+# ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
+# Plot the results
+plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")#, ylims=[-0., 30.])
 
-# ╔═╡ 09ee9194-33f5-4abb-98ff-9c49a0f85168
-#=╠═╡
-plot(sol1.t, sol1[1,:], label = "V", xlabel = "time")
-  ╠═╡ =#
 
-# ╔═╡ 073d97d6-b974-4b9a-ac33-f2e0ada15926
-#=╠═╡
+# ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
+p_gating = plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"])
+
+# ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
 begin
-	plot(sol1.t, sol1[2,:], label = "n", xlabel = "time")
-	plot!(sol1.t, sol1[3,:], label = "m", xlabel = "time")
-	plot!(sol1.t, sol1[4,:], label = "h", xlabel = "time")
+	# Plot phase diagrams
+	p_phase = plot(V_vals, m_vals, label="V vs m", xlabel="Voltage (mV)", ylabel="Gating Variable", title="Phase Plot V-m")
+	plot!(V_vals, h_vals, label="V vs h")
+	plot!(V_vals, n_vals, label="V vs n")
 end
-  ╠═╡ =#
 
-# ╔═╡ 7a9801e3-1f00-4d0f-b2b2-13a6f3041f09
+# ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
+md"Find Stationary points"
 
-# try I_stim experimentally around Hopf point
-# try new branch on blue point of green curve
-# periodic doubling at I_0.4?
-# 
+# ╔═╡ 7eae8964-b75c-455a-a2ab-7bf049dd7c4f
+p_stat = (
+	gK=gK, 
+	gNa=gNa, 
+	gL=gL, 
+	EK=EK, 
+	ENa=ENa, 
+	EL=EL, 
+	T=temp_factor,
+	C=C, 
+	I=I
+	)
 
-# ╔═╡ 7c9b025a-9d25-4e56-a3c9-a7e910011263
-#=╠═╡
-prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution)
-  ╠═╡ =#
+# ╔═╡ 95fb071c-0c2b-47c1-af58-09999ddbcbb2
+function HH_!(F, u)
+    hh!(F, u, p_stat, 0)
+end
 
-# ╔═╡ 283b26d2-7a12-40a1-9c8d-b4dafc8c94d1
-# ╠═╡ disabled = true
-#=╠═╡
-prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution; J=D_hh)
-  ╠═╡ =#
+# ╔═╡ 574dc478-b48a-4873-9d30-26577affd31a
+function J_HH_!(J, u)
+    jac = D_hh(u, p_stat)
+    for i in 1:length(u)
+        for j in 1:length(u)
+            J[i, j] = jac[i, j]
+        end
+    end
+end
+
+
+# ╔═╡ b33818d7-8787-4353-8460-fa6f5da02844
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
-BifurcationKit = "0f109fa4-8a5d-4b75-95aa-f515264e7665"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
+PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
-BifurcationKit = "~0.4.9"
 DifferentialEquations = "~7.16.0"
 ForwardDiff = "~0.10.38"
+NLsolve = "~4.5.1"
 Plots = "~1.40.9"
+PlutoUI = "~0.7.23"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -372,7 +239,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "e97cc9b0240546abb35fe532f77f7cd95212d19e"
+project_hash = "2b4972f17942b74bbb74f0f48072f3bb7f5e8a52"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -384,6 +251,12 @@ weakdeps = ["ChainRulesCore", "ConstructionBase", "EnzymeCore"]
     ADTypesChainRulesCoreExt = "ChainRulesCore"
     ADTypesConstructionBaseExt = "ConstructionBase"
     ADTypesEnzymeCoreExt = "EnzymeCore"
+
+[[deps.AbstractPlutoDingetjes]]
+deps = ["Pkg"]
+git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
+uuid = "6e696c72-6542-2067-7265-42206c756150"
+version = "1.3.2"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -441,18 +314,6 @@ deps = ["LinearAlgebra", "Random", "StaticArrays"]
 git-tree-sha1 = "d57bd3762d308bded22c3b82d033bff85f6195c6"
 uuid = "ec485272-7323-5ecc-a04f-4719b315124d"
 version = "0.4.0"
-
-[[deps.Arpack]]
-deps = ["Arpack_jll", "Libdl", "LinearAlgebra", "Logging"]
-git-tree-sha1 = "91ca22c4b8437da89b030f08d71db55a379ce958"
-uuid = "7d9fca2a-8960-54d3-9f78-7d1dccf2cb97"
-version = "0.5.3"
-
-[[deps.Arpack_jll]]
-deps = ["Artifacts", "CompilerSupportLibraries_jll", "JLLWrappers", "Libdl", "OpenBLAS_jll", "Pkg"]
-git-tree-sha1 = "5ba6c757e8feccf03a1554dfaf3e26b3cfc7fd5e"
-uuid = "68821587-b530-5797-8361-c406ea357684"
-version = "3.5.1+1"
 
 [[deps.ArrayInterface]]
 deps = ["Adapt", "LinearAlgebra"]
@@ -514,23 +375,6 @@ weakdeps = ["SparseArrays"]
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
-[[deps.BifurcationKit]]
-deps = ["Accessors", "ArnoldiMethod", "Arpack", "BlockArrays", "DataStructures", "Dates", "DocStringExtensions", "FastGaussQuadrature", "ForwardDiff", "IterativeSolvers", "Krylov", "KrylovKit", "LinearAlgebra", "LinearMaps", "Parameters", "PreallocationTools", "Printf", "RecursiveArrayTools", "Reexport", "SciMLBase", "SparseArrays", "StructArrays"]
-git-tree-sha1 = "da0f7f65a162db9533a89ea3198cbc7fc8c7dfa0"
-uuid = "0f109fa4-8a5d-4b75-95aa-f515264e7665"
-version = "0.4.9"
-
-    [deps.BifurcationKit.extensions]
-    JLD2Ext = "JLD2"
-    MakieExt = "Makie"
-    PlotsExt = ["Plots", "RecipesBase"]
-
-    [deps.BifurcationKit.weakdeps]
-    JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
-    Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
-    Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
-
 [[deps.BitFlags]]
 git-tree-sha1 = "0691e34b3bb8be9307330f88d1a3c3f25466c24d"
 uuid = "d1d4a3ce-64b1-5f1a-9ba4-7e7e69966f35"
@@ -541,16 +385,6 @@ deps = ["Static"]
 git-tree-sha1 = "f21cfd4950cb9f0587d5067e69405ad2acd27b87"
 uuid = "62783981-4cbd-42fc-bca8-16325de8dc4b"
 version = "0.1.6"
-
-[[deps.BlockArrays]]
-deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra"]
-git-tree-sha1 = "1ded9033f6067573314b27cd4b9ff01a1ba92cff"
-uuid = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
-version = "1.4.0"
-weakdeps = ["BandedMatrices"]
-
-    [deps.BlockArrays.extensions]
-    BlockArraysBandedMatricesExt = "BandedMatrices"
 
 [[deps.BoundaryValueDiffEq]]
 deps = ["ADTypes", "ArrayInterface", "BoundaryValueDiffEqAscher", "BoundaryValueDiffEqCore", "BoundaryValueDiffEqFIRK", "BoundaryValueDiffEqMIRK", "BoundaryValueDiffEqMIRKN", "BoundaryValueDiffEqShooting", "DiffEqBase", "FastClosures", "ForwardDiff", "LinearAlgebra", "Reexport", "SciMLBase"]
@@ -1246,6 +1080,24 @@ git-tree-sha1 = "2bd56245074fab4015b9174f24ceba8293209053"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.27"
 
+[[deps.Hyperscript]]
+deps = ["Test"]
+git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
+uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
+version = "0.0.4"
+
+[[deps.HypertextLiteral]]
+deps = ["Tricks"]
+git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
+uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
+version = "0.9.5"
+
+[[deps.IOCapture]]
+deps = ["Logging", "Random"]
+git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
+uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
+version = "0.2.5"
+
 [[deps.IfElse]]
 git-tree-sha1 = "debdd00ffef04665ccbb3e150747a77560e8fad1"
 uuid = "615f187c-cbe4-4ef1-ba3b-2fcf58d6d173"
@@ -1281,12 +1133,6 @@ weakdeps = ["Dates", "Test"]
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
 uuid = "92d709cd-6900-40b7-9082-c6be49f344b6"
 version = "0.2.4"
-
-[[deps.IterativeSolvers]]
-deps = ["LinearAlgebra", "Printf", "Random", "RecipesBase", "SparseArrays"]
-git-tree-sha1 = "59545b0a2b27208b0650df0a46b8e3019f85055b"
-uuid = "42fd0dbc-a981-5370-80f2-aaf504508153"
-version = "0.9.4"
 
 [[deps.IteratorInterfaceExtensions]]
 git-tree-sha1 = "a3f24677c21f5bbe9d2a714f95dcd58337fb2856"
@@ -1335,16 +1181,6 @@ deps = ["LinearAlgebra", "Printf", "SparseArrays"]
 git-tree-sha1 = "b29d37ce30fa401a4563b18880ab91f979a29734"
 uuid = "ba0b0d4f-ebba-5204-a429-3ac8c609bfb7"
 version = "0.9.10"
-
-[[deps.KrylovKit]]
-deps = ["LinearAlgebra", "PackageExtensionCompat", "Printf", "Random", "VectorInterface"]
-git-tree-sha1 = "d7ed24a88732689f26d3f12a817d181d4024bf44"
-uuid = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
-version = "0.8.3"
-weakdeps = ["ChainRulesCore"]
-
-    [deps.KrylovKit.extensions]
-    KrylovKitChainRulesCoreExt = "ChainRulesCore"
 
 [[deps.LAME_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl"]
@@ -1523,18 +1359,6 @@ version = "7.3.0"
 deps = ["Libdl", "OpenBLAS_jll", "libblastrampoline_jll"]
 uuid = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 version = "1.11.0"
-
-[[deps.LinearMaps]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "7f6be2e4cdaaf558623d93113d6ddade7b916209"
-uuid = "7a12625a-238d-50fd-b39a-03d52299707e"
-version = "3.11.4"
-weakdeps = ["ChainRulesCore", "SparseArrays", "Statistics"]
-
-    [deps.LinearMaps.extensions]
-    LinearMapsChainRulesCoreExt = "ChainRulesCore"
-    LinearMapsSparseArraysExt = "SparseArrays"
-    LinearMapsStatisticsExt = "Statistics"
 
 [[deps.LinearSolve]]
 deps = ["ArrayInterface", "ChainRulesCore", "ConcreteStructs", "DocStringExtensions", "EnumX", "GPUArraysCore", "InteractiveUtils", "Krylov", "LazyArrays", "Libdl", "LinearAlgebra", "MKL_jll", "Markdown", "PrecompileTools", "Preferences", "RecursiveArrayTools", "Reexport", "SciMLBase", "SciMLOperators", "Setfield", "StaticArraysCore", "UnPack"]
@@ -2116,6 +1940,12 @@ version = "1.40.9"
     ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
+[[deps.PlutoUI]]
+deps = ["AbstractPlutoDingetjes", "Base64", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
+git-tree-sha1 = "5152abbdab6488d5eec6a01029ca6697dff4ec8f"
+uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+version = "0.7.23"
+
 [[deps.PoissonRandom]]
 deps = ["Random"]
 git-tree-sha1 = "a0f1159c33f846aa77c3f30ebbc69795e5327152"
@@ -2603,27 +2433,6 @@ git-tree-sha1 = "f35f6ab602df8413a50c4a25ca14de821e8605fb"
 uuid = "7792a7ef-975c-4747-a70f-980b88e8d1da"
 version = "0.5.7"
 
-[[deps.StructArrays]]
-deps = ["ConstructionBase", "DataAPI", "Tables"]
-git-tree-sha1 = "9537ef82c42cdd8c5d443cbc359110cbb36bae10"
-uuid = "09ab397b-f2b6-538f-b94a-2f83cf4a842a"
-version = "0.6.21"
-
-    [deps.StructArrays.extensions]
-    StructArraysAdaptExt = "Adapt"
-    StructArraysGPUArraysCoreExt = ["GPUArraysCore", "KernelAbstractions"]
-    StructArraysLinearAlgebraExt = "LinearAlgebra"
-    StructArraysSparseArraysExt = "SparseArrays"
-    StructArraysStaticArraysExt = "StaticArrays"
-
-    [deps.StructArrays.weakdeps]
-    Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
-    GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
-    KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
-    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
-    StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
-
 [[deps.StyledStrings]]
 uuid = "f489334b-da3d-4c2e-b8f0-e476e12c162b"
 version = "1.11.0"
@@ -2711,6 +2520,11 @@ git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.11.3"
 
+[[deps.Tricks]]
+git-tree-sha1 = "6cae795a5a9313bbb4f60683f7263318fc7d1505"
+uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
+version = "0.1.10"
+
 [[deps.TruncatedStacktraces]]
 deps = ["InteractiveUtils", "MacroTools", "Preferences"]
 git-tree-sha1 = "ea3e54c2bdde39062abf5a9758a23735558705e1"
@@ -2763,12 +2577,6 @@ version = "1.6.4"
 git-tree-sha1 = "ca0969166a028236229f63514992fc073799bb78"
 uuid = "41fe7b60-77ed-43a1-b4f0-825fd5a5650d"
 version = "0.2.0"
-
-[[deps.VectorInterface]]
-deps = ["LinearAlgebra"]
-git-tree-sha1 = "cea8abaa6e43f72f97a09cf95b80c9eb53ff75cf"
-uuid = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
-version = "0.4.9"
 
 [[deps.VertexSafeGraphs]]
 deps = ["Graphs"]
@@ -3082,31 +2890,43 @@ version = "1.4.1+2"
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
-# ╠═e6a0eca9-b97b-493b-8d37-fdd939516580
-# ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
-# ╠═92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
+# ╟─1b979681-3a7b-4041-95e0-461aa5cd54bb
+# ╟─92dcb151-a7cd-4903-95f1-f2d7f6bd55c0
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
 # ╠═30501e41-cfcb-48bf-9061-0d2102a5c7f6
-# ╟─d8bf1fbc-3834-48b1-a5c5-1e3d259f5d21
-# ╟─14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-# ╠═20749723-db83-49d0-b414-738199bd7656
-# ╠═7c9b025a-9d25-4e56-a3c9-a7e910011263
-# ╠═283b26d2-7a12-40a1-9c8d-b4dafc8c94d1
-# ╠═335b90e4-748b-4f78-bef4-a1902abd83b9
-# ╠═f1b5805a-c41b-4947-8d39-c7e2794ee999
-# ╠═04df6fb9-902c-43b4-b039-e4efaa4192a3
-# ╠═96687775-8f32-4fa8-9ea9-1d297e1b3305
-# ╠═9b1900f1-8f7d-4e85-b55a-56f79fd24805
-# ╠═50738757-002d-4a71-9aae-595fc3207681
-# ╠═6bdffa2d-07c2-4f37-8a9c-b39a3b3ca605
-# ╠═ab5e9fdb-4ea4-48eb-90c0-f2c49e9e2fbe
-# ╠═a942bf23-3d95-462c-b48d-48d9e45184a9
-# ╠═4a8606a3-c0e6-40b3-9bcf-37650764ec5d
-# ╠═8a6ebe57-836c-4618-bada-9b66575ffbc4
+# ╠═09377048-ce60-4383-949f-ce2a05735b72
+# ╠═14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
+# ╟─20749723-db83-49d0-b414-738199bd7656
+# ╠═9b4a2652-4323-4cc1-ae12-94102aa7ae14
+# ╠═867a194c-1904-4054-906e-1ae9e14a0811
+# ╠═a5a09f95-ac55-4344-bee6-b8cca141a693
+# ╟─948a3ada-b8e7-4c44-909e-6de1cde29dc8
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
-# ╠═ca1f3992-f945-4377-bc6c-74a682b30afd
-# ╠═09ee9194-33f5-4abb-98ff-9c49a0f85168
-# ╠═073d97d6-b974-4b9a-ac33-f2e0ada15926
-# ╠═7a9801e3-1f00-4d0f-b2b2-13a6f3041f09
+# ╠═739989c1-fac5-4187-a346-bf9c9275d94d
+# ╠═1833d6ec-8cd2-4d9a-969b-790462671ae5
+# ╠═8a4bf031-874b-4c6f-8896-b63df1624705
+# ╠═c50c1f50-f271-47a1-a95b-38a858934201
+# ╠═8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
+# ╠═7eae8964-b75c-455a-a2ab-7bf049dd7c4f
+# ╟─95fb071c-0c2b-47c1-af58-09999ddbcbb2
+# ╟─574dc478-b48a-4873-9d30-26577affd31a
+# ╠═25e786b0-bafc-4c9c-9dfa-7d8f264217c7
+# ╠═a9f7dcfa-f89d-4dae-8cfb-d48cf730a4de
+# ╠═ec9ce239-1134-44a6-b4db-1141664c4edc
+# ╠═f0d35d7c-1627-4605-a391-0fc4947c3d3e
+# ╠═40bacb8f-1b04-4b92-b6c2-98b5397dee8c
+# ╟─f5c6be2a-6a16-4619-898f-3c73ff060470
+# ╠═acf70875-b65f-4f6e-89e7-aeccf23496ad
+# ╠═f2e28d5f-1eb4-4d35-9212-823d07487f77
+# ╠═5314c111-bbaf-49b3-aadd-dbbcb98b82d7
+# ╠═9a934e1d-9fbb-41ea-85f2-2d51d808e363
+# ╠═be22fd07-4947-4fe1-bd3b-87859531b327
+# ╠═fe6d1ad7-171f-4ad9-a498-b8836faa18aa
+# ╠═858fbbde-c144-4c1b-aba5-90e741e44e45
+# ╠═c5d365ee-6a31-4a0b-bc27-48eb6ab0eb7a
+# ╠═1457e57b-e1fa-4412-ad52-7c8a2f2cd87c
+# ╠═ce7f5b9f-17d7-4048-a0f8-56d03f23c5de
+# ╠═5d6401b6-c9b4-4adb-af1f-12b93c37a871
+# ╠═b33818d7-8787-4353-8460-fa6f5da02844
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
