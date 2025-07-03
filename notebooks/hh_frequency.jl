@@ -263,29 +263,36 @@ end
 
 # ╔═╡ f53d7bc8-38ee-47fe-bc6f-c39ba6dd9abf
 begin
-n_per_plot = 10
-n_plots = ceil(Int, length(t_range) / n_per_plot)
-n_rows = n_plots
-n_cols = 1
-
-plt = plot(layout = (n_rows, n_cols), size=(1200, n_plots*400), left_margin = 2Plots.mm)
-
-for i in 1:n_plots
-    subplot_idx = i
-    for j in 1:n_per_plot
-        idx = (i - 1) * n_per_plot + j
-        if idx > length(t_range)
-            break
-        end
-        T_val = t_range[idx]
-        plot!(plt[subplot_idx], I_range, freq_matrix[idx, :], label="T = $T_val °C", lw=2, alpha=0.9)
-    end
-    xlabel!(plt[subplot_idx], "I_stim (µA/cm²)")
-    ylabel!(plt[subplot_idx], "Firing Frequency (Hz)")
-    title!(plt[subplot_idx], "Temps: $(t_range[(i-1)*n_per_plot+1])–$(min(t_range[end], t_range[min(end, i*n_per_plot)]))°C")
-end
-
-display(plt)
+	n_per_plot = 10
+	_skip = 3  # plot every third one
+	t_indices = 1:_skip:length(t_range)
+	n_plots = ceil(Int, length(t_indices) / n_per_plot)
+	n_rows = n_plots
+	n_cols = 1
+	
+	plt = plot(layout = (n_rows, n_cols), size = (1200, n_plots * 600), left_margin = 5Plots.mm)
+	
+	palette = [RGB(1.0, 0.0, 0.0) * (0.3 + 0.7 * (i-1)/(n_per_plot-1)) for i in 1:n_per_plot] 
+	for i in 1:n_plots
+	    subplot_idx = i
+	    for j in 1:n_per_plot
+	        idx_idx = (i - 1) * n_per_plot + j
+	        if idx_idx > length(t_indices)
+	            break
+	        end
+	        idx = t_indices[idx_idx]
+	        T_val = t_range[idx]
+	        plot!(plt[subplot_idx], I_range, freq_matrix[idx, :],
+	              label = "T = $T_val °C", lw = 2, alpha = 0.9, color = RGBA(j/n_per_plot,1-j/n_per_plot,0,0.9))
+	    end
+	    xlabel!(plt[subplot_idx], "I_stim (µA/cm²)")
+	    ylabel!(plt[subplot_idx], "Firing Frequency (Hz)")
+	    t_start = t_range[t_indices[clamp((i - 1) * n_per_plot + 1, 1, end)]]
+	    t_end   = t_range[t_indices[clamp(i * n_per_plot, 1, end)]]
+	    title!(plt[subplot_idx], "Temps: $t_start – $t_end °C")
+	end
+	
+	display(plt)
 end
 
 # ╔═╡ 4aa7f298-4080-4877-a12a-bd1cdb574a79

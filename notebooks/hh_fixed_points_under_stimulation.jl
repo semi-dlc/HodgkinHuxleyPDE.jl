@@ -12,6 +12,8 @@ begin
 	using ForwardDiff
 	using GLMakie
 	using NLsolve
+	using ColorTypes
+	using StatsBase 
 	#using DataFrames
 	#using CSV
 	#using BifurcationKit
@@ -151,25 +153,36 @@ function hh!(du, u, p::HHParams, t)
     du[1] = (-(p.gK * n^4 * (v - p.EK)) -
              (p.gNa * m^3 * h * (v - p.ENa)) -
              (p.gL * (v - p.EL)) +
-             p.I_stim + p.I_base*0.) / p.C
+             p.I_stim + p.I_base*0) / p.C
     du[2] = p.Tfac * (alpha_n(v) * (1.0 - n) - beta_n(v) * n)
     du[3] = p.Tfac * (alpha_m(v) * (1.0 - m) - beta_m(v) * m)
     du[4] = p.Tfac * (alpha_h(v) * (1.0 - h) - beta_h(v) * h)
     nothing
 end
 
+# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
+
+
 # ╔═╡ 9d793ca1-4c9d-4574-8b22-424249f529ab
 # For NLsolve: Stationary system (no stimulation)
 function hh_stat!(u, p::HHParams)
     v, n, m, h = u
     dv = (-(p.gK * n^4 * (v - p.EK)) -
-          (p.gNa * m^3 * h * (v - p.ENa)) -
-          (p.gL * (v - p.EL)) +
-          p.I_base) / p.C
+             (p.gNa * m^3 * h * (v - p.ENa)) -
+             (p.gL * (v - p.EL)) +
+             p.I_stim*0 + p.I_base) / p.C
     dn = p.Tfac * (alpha_n(v) * (1.0 - n) - beta_n(v) * n)
     dm = p.Tfac * (alpha_m(v) * (1.0 - m) - beta_m(v) * m)
     dh = p.Tfac * (alpha_h(v) * (1.0 - h) - beta_h(v) * h)
     return [dv, dn, dm, dh]
+end
+
+# ╔═╡ ceb64f9c-b3cb-4164-a075-4f1d5165089f
+function find_fixpoint(p)
+	u0_guess = [V_rest*1., n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
+	sol_stat = nlsolve(u -> hh_stat!(u, p), u0_guess, autodiff=:forward, xtol=1e-3)
+	u0 = sol_stat.zero
+	return u0
 end
 
 # ╔═╡ 09377048-ce60-4383-949f-ce2a05735b72
@@ -189,52 +202,59 @@ end
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-I = 100.
+begin
+	I_stim = -1.
+	I_base = -80.8
+end
 
 # ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
 T = 6.3
 
-# ╔═╡ 721bec41-392d-402f-ad86-cda037a139d7
-begin
-	temp_factor = temperature_factor(T)
+# ╔═╡ 04da163b-44a2-4da7-988c-c98cc515a4f4
+temp_factor = temperature_factor(T)
 
-	p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I, 0.)
-	
-end
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
+
+# ╔═╡ 851b3091-59a6-40dd-80eb-6314b4f1c5d3
+# Time span
+tspan = (0.0, 100.0)
+
+# ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
+md"For higher temperatures, we can observe (singular) spikes without stimulation. For different parameters, periodic spiking is possible. Furthermore, it shows periodic doubling behavior for a region closely around T=19C."
+
+# ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
+# Define the problem
+p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_stim, I_base)
 
 # ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
 begin
 	# Initial conditions
-	u0_guess = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
-	sol_stat = nlsolve(u -> hh_stat!(u, p), u0_guess, autodiff=:forward)
-	u0 = sol_stat.zero
+	u0 = find_fixpoint(p)
 	
 	@show u0
-	
-	# Time span
-	tspan = (0.0, 100.0)
+
 	
 end
 
 # ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
 @show u0
 
-# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
-@info T
-
-# ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
-md"For higher temperatures, we can observe (singular) spikes without stimulation. For different parameters, periodic spiking is possible. Furthermore, it shows periodic doubling behavior for a region closely around T=19C."
-
-# ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
+# ╔═╡ e4726355-ea88-42b5-8daf-3cd6807bf95d
 begin
-	# Define the problem
-	
-	probODE = ODEProblem(hh!, u0, tspan, p)
-	
-	# Solve the ODE
-	sol = solve(probODE, Tsit5())
-
+	p_stat = deepcopy(p)
+	#p_stat.I_stim = 0.
+	p_system = deepcopy(p)
+	p_system.I_base = 0.
+	fixed_point_u = find_fixpoint(p_system)
+	@info fixed_point_u
 end
+
+# ╔═╡ c47d1474-239d-4148-82ed-d6c48dbf9e73
+probODE = ODEProblem(hh!, u0, tspan, p)
+
+# ╔═╡ f65547a1-28c4-4fe9-8ca8-074502e0bc73
+sol = solve(probODE, TRBDF2(), abstol=10e-7)
 
 # ╔═╡ 2151ee60-c6b4-414c-a9a5-f72836dd6091
 idx = findall(t -> t ≥ 0.0, sol.t) # only after 10 ms
@@ -251,25 +271,39 @@ end
 
 # ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
 # Plot the results
-Plots.plot(sol[idx], vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="$type at temperature $T °C, I_stim $I μA/cm^2", size=(800, 800), yticks=-100:20:100)#, ylims=[-0., 30.], )
+Plots.plot(sol[idx], vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="$type at temperature $T °C, I_stim $I_stim μA/cm^2", size=(800, 800), yticks=-100:20:100)#, ylims=[-0., 30.], )
 
 
 # ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
-Plots.plot(sol[idx], vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], title="$type at temperature $T °C, I_stim $I μA/cm^2",  size=(800, 600))
+begin
+	nmh_plot = Plots.plot(sol[idx], vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], title="$type at temperature $T °C, I_stim $I_stim μA/cm^2",  size=(800, 600))
+	Plots.plot!(nmh_plot,t_vals, fill(fixed_point_u[2], length(t_vals)), color=:blue, linestyle=:dash, label="n*")
+	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[3], length(t_vals)), color=:orange, linestyle=:dash, label="m*")
+	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[4], length(t_vals)), color=:green, linestyle=:dash, label="h*")
+	nmh_plot
+end
 
 # ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
 begin
-	# Plot phase diagrams
-	Plots.plot(V_vals, m_vals, label="V vs m", xlabel="Voltage (mV)", ylabel="Gating Variable", title="$type at temperature $T °C, I_stim $I μA/cm^2 - Phase Plot",  size=(800, 600),
-	titlefontsize=12)
-	Plots.plot!(V_vals, h_vals, label="V vs h")
-	Plots.plot!(V_vals, n_vals, label="V vs n")
+
+    # Phase plots: V vs gating variables
+    Plots.plot(V_vals, n_vals, label="V vs n", xlabel="Voltage (mV)", ylabel="Gating variable",
+         title = "$type at temperature $T °C, I_stim $I_stim μA/cm² - Phase Plot", titlefontsize=12)
+	Plots.plot!(V_vals, m_vals, label="V vs m")
+    Plots.plot!(V_vals, h_vals, label="V vs h")
+    
+
+    # Mark fixed point for each variable
+	Plots.scatter!([fixed_point_u[1]], [fixed_point_u[2]], label="Fixed Point (n*)", markersize=6, marker=:utriangle)
+    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[3]], label="Fixed Point (m*)", markersize=6,marker=:circle)
+    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[4]], label="Fixed Point (h*)", markersize=6,marker=:diamond)
+
 end
 
-# ╔═╡ 4c61e9cf-93af-4be7-8be9-2b1388ce9392
 
-function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals; stride=10)
-    fig = Figure(resolution = (800, 600))
+# ╔═╡ 4c61e9cf-93af-4be7-8be9-2b1388ce9392
+function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals=Nothing; stride=10)
+    fig = Figure(size = (600, 400))
     ax = Axis3(fig[1, 1], xlabel = "n", ylabel = "m", zlabel = "h",
                title = "Phase Space Trajectory (n, m, h), color = V",
 	limits = ((0, 1), (0, 1), (0, 1)))
@@ -290,8 +324,176 @@ function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals; stride
     return fig
 end
 
-# ╔═╡ 48e5c23b-18b2-49c9-9a79-960d101967f4
-plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals)
+# ╔═╡ b98a3e2b-1005-43f3-9334-f520a4a78d13
+function plot_hh_phase_trajectory_2d(n_vals, m_vals, h_vals, V_vals, t_vals=nothing; stride=2)
+    fig = Figure(size = (1400, 1000))  # taller for 2 rows
+
+    idxs = 1:stride:(length(n_vals)-1)
+
+    # (1) n vs m colored by Voltage V
+    ax1 = Axis(fig[1, 1], xlabel="n", ylabel="h",
+        title="Phase: (n, h), color = V (mV)", limits=((0,1), (0,1)))
+    lines!(ax1, n_vals, h_vals, color=:gray, linewidth=1)
+
+    arrows!(
+        ax1,
+        n_vals[idxs], h_vals[idxs],
+        n_vals[idxs .+ 1] .- n_vals[idxs],
+        h_vals[idxs .+ 1] .- h_vals[idxs],
+        arrowsize=10, linewidth=1.5,
+        color=V_vals[idxs],
+        colormap=:viridis,
+        alpha=0.8
+    )
+	@info "cbar1"
+    cbar1 = Colorbar(fig[1, 2], label="Voltage (mV)")
+
+    # (2) V vs n colored by h
+    ax2 = Axis(fig[1, 3], xlabel="V (mV)", ylabel="n",
+        title="Phase: (V, n), color = m",
+        limits=((minimum(V_vals), maximum(V_vals)), (0,1)))
+    lines!(ax2, V_vals, n_vals, color=:gray, linewidth=1)
+
+    arrows!(
+        ax2,
+        V_vals[idxs], n_vals[idxs],
+        V_vals[idxs .+ 1] .- V_vals[idxs],
+        n_vals[idxs .+ 1] .- n_vals[idxs],
+        arrowsize=10, linewidth=1.5,
+        color=m_vals[idxs],
+        colormap=:viridis,
+        alpha=0.8
+    )
+
+    cbar2 = Colorbar(fig[1,4], label="h")
+
+    return fig
+end
+
+# ╔═╡ eae9dfa3-2a36-42ec-a429-9218401d57be
+function plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_vals, p; stride=2)
+    fig = Figure(resolution = (1400, 1000))
+    ax1 = Axis(fig[1, 1], xlabel="n", ylabel="h",
+        title="Phase: (n, h), color = V (mV)", limits=((0,1), (0,1)))
+
+    idxs = 1:stride:(length(n_vals)-1)
+
+    # Trajectory (n,h), color by V
+    lines!(ax1, n_vals, h_vals, color=:gray, linewidth=1)
+    # Plot trajectory arrows
+    Δn = n_vals[idxs .+ 1] .- n_vals[idxs]
+    Δh = h_vals[idxs .+ 1] .- h_vals[idxs]
+    arr = arrows!(
+        ax1,
+        Point2f.(n_vals[idxs], h_vals[idxs]),
+        Vec2f.(Δn, Δh);
+        arrowsize=10,
+        linewidth=1.5,
+        color=V_vals[idxs],
+        colormap=:viridis,
+        alpha=0.8
+    )
+    Colorbar(fig[1, 2], arr, label="Voltage (mV)")
+
+    # Vector field on grid
+    n_grid = range(0, 1, length=20)
+    h_grid = range(0, 1, length=20)
+    V_fix = mean(V_vals)
+    m_fix = mean(m_vals)
+
+    # Preallocate for speed
+    U = zeros(length(n_grid)*length(h_grid))
+    W = zeros(length(n_grid)*length(h_grid))
+    n_pts = zeros(length(n_grid)*length(h_grid))
+    h_pts = zeros(length(n_grid)*length(h_grid))
+    du = zeros(4)
+
+    k = 1
+    for n in n_grid, h in h_grid
+        u_vec = [V_fix, n, m_fix, h]
+        hh!(du, u_vec, p, 0.0)
+        U[k] = du[2]  # dn/dt
+        W[k] = du[4]  # dh/dt
+        n_pts[k] = n
+        h_pts[k] = h
+        k += 1
+    end
+
+    mags = sqrt.(U.^2 .+ W.^2) * 10 .+ eps()
+    U_norm = U ./ mags 
+    W_norm = W ./ mags
+
+    arrows!(
+        ax1,
+        Point2f.(n_pts, h_pts),
+        Vec2f.(U_norm, W_norm);
+        arrowsize=6,
+        linewidth=1,
+        color=:red,
+        alpha=0.6,
+        label="Vector Field"
+    )
+
+    return fig
+end
+
+# ╔═╡ 4fc1d36a-2170-4ed0-b760-29af5e1ee960
+I_range = [0, 5, 10]
+
+# ╔═╡ e7f3c483-4d9d-4e04-b6f3-d355421a96b4
+begin
+	V_fixed = []
+	n_fixed = []
+	m_fixed = []
+	h_fixed = []
+	
+end
+
+# ╔═╡ cc370e72-9895-47cb-9b8a-b9e460a66a2d
+for I_init in I_range
+	p_init = deepcopy(p)
+	p_init.I_base = I_init
+	u0 = find_fixpoint(p_init)
+	push!(V_fixed, u0[1])
+	push!(n_fixed, u0[2])
+	push!(m_fixed, u0[3])
+	push!(h_fixed, u0[4])
+end
+
+# ╔═╡ 7eba6a94-f4cc-4da1-9327-88071a242fce
+h_fixed
+
+# ╔═╡ cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
+u0[4]
+
+# ╔═╡ b8a7b05a-2394-4fd5-8d46-f2fac0e49a5d
+#fixed_point_stimulation = plot_hh_phase_trajectory_2d(n_fixed, m_fixed, h_fixed, I_range)
+
+# ╔═╡ 66c563b9-c71a-4274-9731-1d1800e23d8b
+begin
+	fig_phase_trajectory = plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_vals, p)
+	title!("At temperature $T , initial current $I_base , stimulation current $I_stim")
+	#Makie.scatter!(fig_phase_trajectory[1, 1], n_fixed, m_fixed, color=I_range, colormap=:magma, markersize=10)
+	#Makie.scatter!(fig_phase_trajectory[1, 3], V_fixed, n_fixed, color=I_range, colormap=:magma, markersize=10)
+	#cbar2 = Colorbar(fig_phase_trajectory[1,5],colormap=:magma, label="I_stim", limits=(minimum(I_range), maximum(I_range)))
+	fig_phase_trajectory
+end
+
+# ╔═╡ b2dc2a4b-888b-4869-9825-137cdd2892d4
+save("outputs/spike_traj_T$T-I_base$I_base-I_stim$I_stim.png", fig_phase_trajectory)
+
+# ╔═╡ 0552a44a-dfca-4213-bb4f-687aba00b99e
+begin
+	plot_3d_traj = plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals)
+	Makie.scatter!(plot_3d_traj[1,1], n_fixed, m_fixed, h_fixed, color=I_range, colormap=:magma, markersize=10)
+	Makie.scatter!(plot_3d_traj[1,1], [fixed_point_u[2]], [fixed_point_u[3]], [fixed_point_u[4]], label="Fixed Point (n*)", markersize=6)
+    Makie.scatter!([fixed_point_u[1]], [fixed_point_u[3]], label="Fixed Point (m*)", markersize=6)
+    Makie.scatter!([fixed_point_u[1]], [fixed_point_u[4]], label="Fixed Point (h*)", markersize=6)
+	plot_3d_traj
+end
+
+# ╔═╡ 19a73dd8-794a-48be-a2a0-1cc4ce9a7823
+
 
 # ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 md"If we change current, position initial does not vary, but fixed point"
@@ -305,20 +507,24 @@ md"Show trajectory for different tempeartures, 10/20/30 etc., also transition co
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+ColorTypes = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
+StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+ColorTypes = "~0.12.1"
 DifferentialEquations = "~7.16.0"
 ForwardDiff = "~0.10.38"
 GLMakie = "~0.11.11"
 NLsolve = "~4.5.1"
 Plots = "~1.40.13"
 PlutoUI = "~0.7.23"
+StatsBase = "~0.34.5"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -327,7 +533,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "37ebc676c8f46ce235c1eb26ee2080fe55a4a291"
+project_hash = "84f06699f26923c174ab42e6e7d04dc965d3caf5"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -657,9 +863,9 @@ version = "3.29.0"
 
 [[deps.ColorTypes]]
 deps = ["FixedPointNumbers", "Random"]
-git-tree-sha1 = "c7acce7a7e1078a20a285211dd73cd3941a871d6"
+git-tree-sha1 = "67e11ee83a43eb71ddc950302c53bf33f0690dfe"
 uuid = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
-version = "0.12.0"
+version = "0.12.1"
 weakdeps = ["StyledStrings"]
 
     [deps.ColorTypes.extensions]
@@ -2940,9 +3146,9 @@ version = "1.7.0"
 
 [[deps.StatsBase]]
 deps = ["AliasTables", "DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "29321314c920c26684834965ec2ce0dacc9cf8e5"
+git-tree-sha1 = "b81c5035922cc89c2d9523afc6c54be512411466"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.4"
+version = "0.34.5"
 
 [[deps.StatsFuns]]
 deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
@@ -3495,8 +3701,10 @@ version = "1.4.1+2"
 # ╠═dc14f89b-a2f3-4821-9182-fb55dc1383e3
 # ╠═1b979681-3a7b-4041-95e0-461aa5cd54bb
 # ╠═ee7eca44-4042-4075-ae68-92c762583562
+# ╠═04da163b-44a2-4da7-988c-c98cc515a4f4
 # ╠═721bec41-392d-402f-ad86-cda037a139d7
 # ╠═9d793ca1-4c9d-4574-8b22-424249f529ab
+# ╠═ceb64f9c-b3cb-4164-a075-4f1d5165089f
 # ╠═30501e41-cfcb-48bf-9061-0d2102a5c7f6
 # ╟─09377048-ce60-4383-949f-ce2a05735b72
 # ╠═14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
@@ -3504,15 +3712,30 @@ version = "1.4.1+2"
 # ╠═9b4a2652-4323-4cc1-ae12-94102aa7ae14
 # ╠═867a194c-1904-4054-906e-1ae9e14a0811
 # ╠═a5a09f95-ac55-4344-bee6-b8cca141a693
+# ╠═851b3091-59a6-40dd-80eb-6314b4f1c5d3
 # ╟─948a3ada-b8e7-4c44-909e-6de1cde29dc8
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
+# ╠═e4726355-ea88-42b5-8daf-3cd6807bf95d
+# ╠═c47d1474-239d-4148-82ed-d6c48dbf9e73
+# ╠═f65547a1-28c4-4fe9-8ca8-074502e0bc73
 # ╠═2151ee60-c6b4-414c-a9a5-f72836dd6091
 # ╟─8f758272-6689-479d-a6e7-9a537d3efc12
 # ╠═1833d6ec-8cd2-4d9a-969b-790462671ae5
 # ╠═8a4bf031-874b-4c6f-8896-b63df1624705
 # ╠═c50c1f50-f271-47a1-a95b-38a858934201
 # ╠═4c61e9cf-93af-4be7-8be9-2b1388ce9392
-# ╠═48e5c23b-18b2-49c9-9a79-960d101967f4
+# ╠═b98a3e2b-1005-43f3-9334-f520a4a78d13
+# ╠═eae9dfa3-2a36-42ec-a429-9218401d57be
+# ╠═4fc1d36a-2170-4ed0-b760-29af5e1ee960
+# ╠═e7f3c483-4d9d-4e04-b6f3-d355421a96b4
+# ╠═cc370e72-9895-47cb-9b8a-b9e460a66a2d
+# ╠═7eba6a94-f4cc-4da1-9327-88071a242fce
+# ╠═cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
+# ╠═b8a7b05a-2394-4fd5-8d46-f2fac0e49a5d
+# ╠═66c563b9-c71a-4274-9731-1d1800e23d8b
+# ╠═b2dc2a4b-888b-4869-9825-137cdd2892d4
+# ╠═0552a44a-dfca-4213-bb4f-687aba00b99e
+# ╠═19a73dd8-794a-48be-a2a0-1cc4ce9a7823
 # ╠═8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 # ╠═f64e92cc-d790-4d58-bdf5-14cd213d6f05
 # ╠═c65fbb40-7e57-4491-85cf-a84f4eddc6b5
