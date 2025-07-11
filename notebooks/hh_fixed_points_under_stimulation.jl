@@ -203,8 +203,8 @@ recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 =
 
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
 begin
-	I_stim = -1.
-	I_base = -80.8
+	I_stim = 6.
+	I_base = 0.
 end
 
 # ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
@@ -254,10 +254,17 @@ end
 probODE = ODEProblem(hh!, u0, tspan, p)
 
 # ╔═╡ f65547a1-28c4-4fe9-8ca8-074502e0bc73
-sol = solve(probODE, TRBDF2(), abstol=10e-7)
+sol = solve(probODE, TRBDF2(), abstol=10e-7, dtmax=1e-2)
+
+
+# ╔═╡ f402d81a-798b-4d04-bc0c-9a8fac5d756d
+
 
 # ╔═╡ 2151ee60-c6b4-414c-a9a5-f72836dd6091
 idx = findall(t -> t ≥ 0.0, sol.t) # only after 10 ms
+
+# ╔═╡ 6dc2c03b-44b7-44c9-a636-bb39dec6185f
+sol.t
 
 # ╔═╡ 8f758272-6689-479d-a6e7-9a537d3efc12
 begin
@@ -3718,8 +3725,10 @@ version = "1.4.1+2"
 # ╠═e4726355-ea88-42b5-8daf-3cd6807bf95d
 # ╠═c47d1474-239d-4148-82ed-d6c48dbf9e73
 # ╠═f65547a1-28c4-4fe9-8ca8-074502e0bc73
+# ╠═f402d81a-798b-4d04-bc0c-9a8fac5d756d
 # ╠═2151ee60-c6b4-414c-a9a5-f72836dd6091
-# ╟─8f758272-6689-479d-a6e7-9a537d3efc12
+# ╠═6dc2c03b-44b7-44c9-a636-bb39dec6185f
+# ╠═8f758272-6689-479d-a6e7-9a537d3efc12
 # ╠═1833d6ec-8cd2-4d9a-969b-790462671ae5
 # ╠═8a4bf031-874b-4c6f-8896-b63df1624705
 # ╠═c50c1f50-f271-47a1-a95b-38a858934201
