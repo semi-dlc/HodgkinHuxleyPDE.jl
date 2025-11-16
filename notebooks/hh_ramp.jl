@@ -1,6 +1,8 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# ramp stimulation profile to show hysteresis of the stimulated Hodgkin-Huxley model 
+
 using Markdown
 using InteractiveUtils
 
@@ -9,8 +11,13 @@ begin
 	using DifferentialEquations
 	using Plots
 	using PlutoUI
+	using LaTeXStrings
+	using NPZ
 	#using BifurcationKit
 end
+
+# ╔═╡ 12c47da2-5862-45a9-b034-dcacad4da5a3
+default(titlefontsize=14, guidefontsize=14, tickfontsize=12, legendfontsize=12,dpi=600)
 
 # ╔═╡ 1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 begin
@@ -178,12 +185,6 @@ end
 # function to record information from a solution
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
-# ╔═╡ 7c9b025a-9d25-4e56-a3c9-a7e910011263
-# ╠═╡ disabled = true
-#=╠═╡
-prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution)
-  ╠═╡ =#
-
 # ╔═╡ 335b90e4-748b-4f78-bef4-a1902abd83b9
 # ╠═╡ disabled = true
 #=╠═╡
@@ -193,23 +194,6 @@ opts_br = ContinuationPar(p_min = 0.0, p_max = 10.0, dsmax = 0.1,
 	#nev = 4,
 	# maximum number of continuation steps
 	max_steps = 1000,)
-  ╠═╡ =#
-
-# ╔═╡ b6370869-f4e2-4462-9955-0f68db81680f
-# ╠═╡ disabled = true
-#=╠═╡
-diagram = bifurcationdiagram(
-	prob, 
-	PALC(),
-	3,
-	ContinuationPar(opts_br; ds = -0.001, dsmax = 0.05, n_inversion = 8, detect_bifurcation = 3)
-	)
-  ╠═╡ =#
-
-# ╔═╡ 96687775-8f32-4fa8-9ea9-1d297e1b3305
-# ╠═╡ disabled = true
-#=╠═╡
-scene = plot(diagram; code = (), title="$(size(diagram)) branches", legend = false)
   ╠═╡ =#
 
 # ╔═╡ 94ba39de-2e94-4d0e-bfea-57110de0e652
@@ -257,6 +241,29 @@ begin
 	)
 end
 
+# ╔═╡ 7c9b025a-9d25-4e56-a3c9-a7e910011263
+# ╠═╡ disabled = true
+#=╠═╡
+prob = BifurcationProblem(hh!, u0, p, (@optic _[9]), record_from_solution = recordFromSolution)
+  ╠═╡ =#
+
+# ╔═╡ b6370869-f4e2-4462-9955-0f68db81680f
+# ╠═╡ disabled = true
+#=╠═╡
+diagram = bifurcationdiagram(
+	prob, 
+	PALC(),
+	3,
+	ContinuationPar(opts_br; ds = -0.001, dsmax = 0.05, n_inversion = 8, detect_bifurcation = 3)
+	)
+  ╠═╡ =#
+
+# ╔═╡ 96687775-8f32-4fa8-9ea9-1d297e1b3305
+# ╠═╡ disabled = true
+#=╠═╡
+scene = plot(diagram; code = (), title="$(size(diagram)) branches", legend = false)
+  ╠═╡ =#
+
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
 begin
 	# Define the problem
@@ -264,16 +271,22 @@ begin
 	probODE = ODEProblem(hh!, u0, tspan, p)
 	
 	# Solve the ODE
-	sol = solve(probODE, TRBDF2(); maxiters=1e7, dtmax=2e-3)
-
-	# Extract solution components
-	t_vals = sol.t                     # Time values
-	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
-	m_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
-	h_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
-	n_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
+	sol = solve(probODE, TRBDF2(); dtmax=0.4, maxiters=1e8, saveat=0.01)
 	
 end
+
+# ╔═╡ b1412df8-70ca-41f5-a1b6-221794baea17
+begin
+	# Extract solution components
+	t_vals = sol.t ./1000                   # Time values in [s]
+	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
+	n_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
+	m_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
+	h_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
+end
+
+# ╔═╡ 5787f9f1-8424-48b2-a688-29e83db926a4
+npzwrite("outputs/current_ramp_log.npz", t = t_vals, I_ext=Float64.(I_trig.(sol.t)), V = V_vals, n = n_vals, m = m_vals, h = h_vals)
 
 # ╔═╡ 9b28cefd-df65-4683-8526-0a3b1ebfef4c
 md"We see an obvious difference in behaviour when raising the current to 200 uA/cm^2 compared to the other way around."
@@ -287,44 +300,55 @@ V_plot = plot(sol, vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (
   ╠═╡ =#
 
 # ╔═╡ 26479215-f6bf-4af3-9a56-a84cb1726bb8
-plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current (uA/cm^2)", label="I(t)")
+i_plot = plot(t_vals[1:104:end], I_trig.(sol.t)[1:104:end], xlabel="Time t [s]", ylabel="External Current Iₑₓₜ [μA/cm²]", label=L"I_{ext}(t)")
 
 # ╔═╡ 6343a539-12d2-4f11-8214-d423630c1acc
 sol.t
 
 # ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
 begin
-plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], legend=:top,                      # position at top center
-        legend_background_color=:transparent, alpha=0.7)
+nmh_plot = plot(t_vals, [m_vals n_vals h_vals], xlabel="Time t [s]", ylabel="Gating variables n, m, h", label=["m" "n" "h"], legend=:top,                      # position at top center
+        legend_background_color=:transparent, alpha=0.7, ylims=[0., 1.])
 end
 
 # ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
 begin
 	# Plot phase diagrams
-	plot(V_vals, m_vals, label="V vs m", xlabel="Voltage (mV)", ylabel="m", title="Phase Plot V-m")
+	plot(V_vals, m_vals, label="V vs m", xlabel="Membrane Potential V [mV]", ylabel="m", title="Phase Plot")
 	plot!(V_vals, h_vals, label="V vs h")
 	plot!(V_vals, n_vals, label="V vs n")
 end
 
 # ╔═╡ e438df90-4962-4fb7-8acf-63f660d80561
-v1_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+v_plot = plot(t_vals, V_vals, xlabel="Time t [s]", ylabel="Membrane Potential V [mV]", legend_background_color=:transparent, legend=:top,)
 
 # ╔═╡ a76eec24-6fde-420f-93db-0c07bae14903
-i1_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current", label="I(t)")
+savefig(i_plot, "outputs/ramp_current_I.pdf")
+
+# ╔═╡ 58436581-c71b-4463-a7e5-73098dc2df39
+savefig(v_plot, "outputs/ramp_current_V.pdf")
+
+# ╔═╡ 0dc02d8b-cf83-4828-9a42-6acd195438d7
+savefig(nmh_plot, "outputs/ramp_current_nmh.pdf")
 
 # ╔═╡ 055f4903-39e0-4731-a2f5-c8a7fba3cb70
-v2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)")
+v2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time t [ms]", ylabel="Membrane Potential V [mV]", label="V(t)")
 
 # ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 
 
 # ╔═╡ 0f72db21-f27a-4492-9337-8948bc94d382
 # ╠═╡ show_logs = false
-i2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Stimulation current", label="I(t)", xlim=(2500., 2600.))
+i2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time t [ms]", ylabel=L"Stimulation current I_{ext} [\mu A*cm^{-2}]", label=md"I_{ext}(t)", xlim=(2500., 2600.))
 
 # ╔═╡ 726e0681-d6f0-4d46-9b4b-1222ebda4eac
-nmh3_plot = plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], legend=:top,                      # position at top center
+nmh3_plot = plot(sol, vars=(2:4), xlabel="Time t [ms]", ylabel="Gating variables (n, m, h)", label=["n" "m" "h"], legend=:top,                      # position at top center
         legend_background_color=:transparent, alpha=0.7, xlim=(2500., 2600.))
+
+# ╔═╡ 927649a9-5dc9-4e09-91e6-b95bde96e648
+#=╠═╡
+v3_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", xlim=(2500., 2600.))
+  ╠═╡ =#
 
 # ╔═╡ c367b6ac-011b-40a0-abd5-b6a070d12306
 # ╠═╡ disabled = true
@@ -332,18 +356,19 @@ nmh3_plot = plot(sol, vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables",
 v3_plot = plot(sol.t, Vmin, xlabel="Time (ms)", ylabel="Minimum Membrane Potential (mV)", label="V_min(t)")
   ╠═╡ =#
 
-# ╔═╡ 927649a9-5dc9-4e09-91e6-b95bde96e648
-v3_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", xlim=(2500., 2600.))
-
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 
 [compat]
 DifferentialEquations = "~7.16.0"
+LaTeXStrings = "~1.4.0"
+NPZ = "~0.4.3"
 Plots = "~1.40.9"
 PlutoUI = "~0.7.23"
 """
@@ -354,7 +379,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "6a17e0656b56cba1a226a8c5031d0fe0f796730d"
+project_hash = "fa33103e6666e2242d7e1a27e91adbe7ecf7eecf"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -1023,6 +1048,16 @@ version = "1.1.1"
     ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.17.0"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -1636,6 +1671,12 @@ deps = ["Distances", "LineSearches", "LinearAlgebra", "NLSolversBase", "Printf",
 git-tree-sha1 = "019f12e9a1a7880459d0173c182e6a99365d7ac1"
 uuid = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 version = "4.5.1"
+
+[[deps.NPZ]]
+deps = ["FileIO", "ZipFile"]
+git-tree-sha1 = "60a8e272fe0c5079363b28b0953831e2dd7b7e6f"
+uuid = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+version = "0.4.3"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -2879,6 +2920,12 @@ git-tree-sha1 = "6dba04dbfb72ae3ebe5418ba33d087ba8aa8cb00"
 uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.5.1+0"
 
+[[deps.ZipFile]]
+deps = ["Libdl", "Printf", "Zlib_jll"]
+git-tree-sha1 = "f492b7fe1698e623024e873244f10d89c95c340a"
+uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
+version = "0.10.1"
+
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
@@ -3004,6 +3051,7 @@ version = "1.4.1+2"
 
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
+# ╠═12c47da2-5862-45a9-b034-dcacad4da5a3
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
 # ╠═1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 # ╠═2599bfdb-77f3-43be-8a7c-eb78dacad3b7
@@ -3020,6 +3068,8 @@ version = "1.4.1+2"
 # ╠═94ba39de-2e94-4d0e-bfea-57110de0e652
 # ╠═867a194c-1904-4054-906e-1ae9e14a0811
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
+# ╠═b1412df8-70ca-41f5-a1b6-221794baea17
+# ╠═5787f9f1-8424-48b2-a688-29e83db926a4
 # ╟─9b28cefd-df65-4683-8526-0a3b1ebfef4c
 # ╠═1833d6ec-8cd2-4d9a-969b-790462671ae5
 # ╠═26479215-f6bf-4af3-9a56-a84cb1726bb8
@@ -3028,6 +3078,8 @@ version = "1.4.1+2"
 # ╠═c50c1f50-f271-47a1-a95b-38a858934201
 # ╠═e438df90-4962-4fb7-8acf-63f660d80561
 # ╠═a76eec24-6fde-420f-93db-0c07bae14903
+# ╠═58436581-c71b-4463-a7e5-73098dc2df39
+# ╠═0dc02d8b-cf83-4828-9a42-6acd195438d7
 # ╠═055f4903-39e0-4731-a2f5-c8a7fba3cb70
 # ╟─8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 # ╠═0f72db21-f27a-4492-9337-8948bc94d382

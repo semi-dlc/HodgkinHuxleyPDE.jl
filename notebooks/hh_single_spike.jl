@@ -1,6 +1,7 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# detecting single spike thresholds that are typically below continuous spike thresholds
 using Markdown
 using InteractiveUtils
 
@@ -206,7 +207,7 @@ function test_spike(model_pars::HHParams; I_stim=0.0, I_base=0.0)
     prob = ODEProblem(hh!, u0_test, (0.0, 200.0), ptest)
     sol = solve(prob, TRBDF2())
     m_vals = [u[3] for u in sol.u]
-    return any(m -> m > 0.8, m_vals)
+    return any(m -> m > 0.6, m_vals)
 end
 
 # ╔═╡ 78655faf-bc18-4f7d-a25f-3cdfa243d959
@@ -248,29 +249,81 @@ end
 
 # ╔═╡ 4144f1ad-181e-49c9-856a-b7608d8dda13
 begin
-	t_range = 0.0:0.25:30.
+	t_range = 0.0:1.:30.
+	n_t = length(t_range)
 	@show t_range
 	single_spike_range = zeros(length(t_range))
 end
 
+# ╔═╡ e0165115-614f-4633-9876-d4a3bde73b14
+I_range = [-20., -15., -12.5, -10., -8., -5., 0., 5., 8., 10., 12.5, 15., 20.]
+
+# ╔═╡ 8590b584-337a-43fb-9fbf-ccc72ce21083
+n_I = length(I_range)
+
+# ╔═╡ 9321a469-1dbd-4948-8341-dc7ac97931bd
+threshold_matrix = zeros(n_t, n_I)
+
+
+# ╔═╡ fa36953f-61cd-4c9a-8153-f2c664348765
+length(I_range)
+
 # ╔═╡ 7ef70711-4d23-404b-aea4-935e4c7740f5
 begin
-	I_base_list = [ -25., -20., -15., -12.5, -10., -8., -5., 0., 5., 8., 10., 12.5, 15., 20., 25., ]
-	for I_base in I_base_list
-		for (i, Tcurr) in enumerate(t_range)
-		    single_spike_range[i] = single_spike_boundary(p; temperature=Tcurr, atol=1e-2, I_base=I_base)
+
+	for (idx, temperature) in enumerate(t_range)
+		for (jdx, i) in enumerate(I_range)
+		#i = convert(Int, i)
+			p_local = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, i, i)
+		    single_spike_range = single_spike_boundary(p_local; temperature=temperature, atol=1e-2, I_base=i)
+			@info single_spike_range i temperature
+			threshold_matrix[idx, jdx] = single_spike_range
 		end
-	end
+
+		@info t_range threshold_matrix[idx, :]
 	
+	end
+end
+
+# ╔═╡ df4b3f6c-075c-4293-8dd8-757f11cd4794
+begin
+	plt = plot(
+    xlabel = "Temperature [°C]",
+    ylabel = "Spiking Threshold",
+    title = "Single-Spike Threshold vs Temperature",
+    legend = :topright,
+    size = (800, 600),
+    lw = 2,
+)
+
+# Plot one line per current (I_range)
+for (jdx, i) in enumerate(I_range)
+    plot!(
+        plt,
+        t_range,
+        threshold_matrix[:, jdx],  # column = current jdx, all temperatures
+        label = "Iᵢₙᵢₜ = $i",
+        marker = :circle,
+        linestyle = :solid,
+    )
+end
 end
 
 # ╔═╡ a0c0e632-8fd2-4f6c-884e-8dda0d0b2c1a
-for I_base in I_base_list
-		plot_init_c = plot(t_range, single_spike_range, xlabel="Temperature (°C)", ylabel="Threshold I_stim (μA/cm²)",
-		    label="Threshold for Spike", title="Single-Spike Threshold vs Temperature", size=(800, 600))
-		npzwrite("outputs/single_spiking_range_init$I_base.npz", t_range=t_range, single_spike=single_spike_range)
-		@info single_spike_range
-end
+npzwrite("outputs/single_spiking_range.npz", Dict(
+    "t_range"           => t_range,
+    "I_range"       => I_range,
+    "threshold_matrix"  => threshold_matrix,
+))
+
+# ╔═╡ cf445799-6d79-4f3c-809e-734f4233a9af
+plt
+
+# ╔═╡ 71a0af72-6fd8-47ec-a0a0-6ec1729ba60a
+p_test = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, 2.0, I_base)
+
+# ╔═╡ 1b6fa468-6864-4ae9-a3d5-cc7ded83ec53
+ single_spike_boundary(p_test; temperature=6.3, atol=1e-2, I_base=I_base)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -2986,7 +3039,15 @@ version = "1.4.1+2"
 # ╠═af5b12db-5a7c-47ed-89c5-529fe6a3b5d7
 # ╠═78655faf-bc18-4f7d-a25f-3cdfa243d959
 # ╠═4144f1ad-181e-49c9-856a-b7608d8dda13
+# ╠═e0165115-614f-4633-9876-d4a3bde73b14
+# ╠═8590b584-337a-43fb-9fbf-ccc72ce21083
+# ╠═9321a469-1dbd-4948-8341-dc7ac97931bd
+# ╠═fa36953f-61cd-4c9a-8153-f2c664348765
 # ╠═7ef70711-4d23-404b-aea4-935e4c7740f5
+# ╠═df4b3f6c-075c-4293-8dd8-757f11cd4794
 # ╠═a0c0e632-8fd2-4f6c-884e-8dda0d0b2c1a
+# ╠═cf445799-6d79-4f3c-809e-734f4233a9af
+# ╠═71a0af72-6fd8-47ec-a0a0-6ec1729ba60a
+# ╠═1b6fa468-6864-4ae9-a3d5-cc7ded83ec53
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

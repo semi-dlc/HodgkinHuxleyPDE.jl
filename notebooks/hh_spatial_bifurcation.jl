@@ -1,344 +1,163 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# an attempt at performing bifurcation analysis of the spatially extended Hodgkin-Huxley system. Not further developed as PyDSTool was used.
+
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 593aba2c-af3c-41c0-b5d2-5859e1499523
+# ╔═╡ 1be2e9b0-6baf-11f0-2b92-3983f2abff1a
 begin
-	using DifferentialEquations
-	using LinearAlgebra
-	using SparseArrays
-	using Plots
-	using NLsolve
-	using ForwardDiff
-	using PlutoUI
 	using BifurcationKit
+	using ForwardDiff
+	using Plots
+	using NPZ
+	using DifferentialEquations
+	using NLsolve
+	using LinearAlgebra
 end
 
-# ╔═╡ bad77a2e-e1a3-4fee-8e80-cfd6842e9bc0
-md"We construct a HHParams struct in order to store our parameters (of the Hodgkin Huxley model)"
-
-# ╔═╡ b8adf5b1-a7b7-42ef-bff6-69cf11ce38c9
-# Hodgkin-Huxley parameter struct
-mutable struct HHParams
+# ╔═╡ 7e6d5e25-fba8-4e18-b9a0-7de314b170b2
+mutable struct HH_TW_Params
     gK::Float64
     gNa::Float64
     gL::Float64
     EK::Float64
     ENa::Float64
-    EL::Float64 #
-    T_fac::Float64 # temperature factor (dimensionless)
-    C::Float64 # membrane capacitance [F/mm^2]
-    I_stim::Float64 # stimulation current functional (maps time to I_stim(x) over space)
+    EL::Float64
+    V_rest::Float64
+    Tfac::Float64
+    C::Float64
+    I_base::Float64
+    D::Float64
+    c::Float64  # Wave speed parameter
 end
 
-
-# ╔═╡ 01da6539-0054-4c66-bb24-360f4c1c88c2
-md"
-We construct another, similiar *HH\_PDE\_Params* struct for the PDE case, which adds the variables:
-- D: The constant factor of the diffusivity matrix
-- L: The length of the cable
-- N: The amount of discretization cells of the cable
-"
-
-# ╔═╡ 8a1313e4-6aa6-4846-9c2e-e00843fd487e
-md"
-We do use a relatively simple FDM solver. This is due to the equation being a kind of the reaction-diffusion system, and the solution will (approximately, in the case of a travelling wave solution) look similar across all values of x, but only for different values of t. It gets the job done.
-"
-
-# ╔═╡ 9f0e001c-7f98-45ec-859e-b57f27a4aba7
-# Hodgkin-Huxley parameter struct for the PDE case
-mutable struct HH_PDE_Params
-    gK::Float64
-    gNa::Float64
-    gL::Float64
-    EK::Float64
-    ENa::Float64
-    EL::Float64 #
-    T_fac::Float64 # temperature factor (dimensionless)
-    C::Float64 # membrane capacitance [F/mm^2]
-    I_stim::Float64 # stimulation current functional (maps time to I_stim(x) over space)
-	D::Float64 # Constant of the diffusivity matrix (~alpha)
-	L::Float64 # Length of the cable
-	N::Float64 # Discretization of the cable
-end
-
-
-# ╔═╡ 44daa7d6-b5d6-452b-89ec-e3e626eeab3d
-# Q10 temperature scaling. We might want to check that the parameters of HHParams are really temperature-independent. Especially the reversal potential seems to come from a temperature-dependent equation, mathematically.
-temperature_factor(t) = 3^((t - 6.3) / 10)
-
-# ╔═╡ c899ae62-2d3c-421b-b0c8-402b5a0c09ec
+# ╔═╡ 9c7a5121-1dd2-479b-a09a-6dab46616cdc
 begin
-	L = 10.0                # cm, cable length
-    N = 201                # number of grid points
-    dx = L/(N-1)
-    x = range(0, L, length=N)
-    D = 1.0                # seems to be a diffusivity constant.
+	function alpha_n(v); vred = v + 65; 0.01 * (10.0 - vred) / (exp((10.0 - vred)/10.0) - 1.0); end
+	function beta_n(v); vred = v + 65; 0.125 * exp(-vred / 80.0); end
+	function alpha_m(v); vred = v + 65; 0.1 * (25.0 - vred) / (exp((25.0 - vred)/10.0) - 1.0); end
+	function beta_m(v); vred = v + 65; 4.0 * exp(-vred / 18.0); end
+	function alpha_h(v); vred = v + 65; 0.07 * exp(-vred / 20.0); end
+	function beta_h(v); vred = v + 65; 1.0 / (exp((30.0 - vred)/10.0) + 1.0); end
+	
+	n_inf(v) = alpha_n(v)/(alpha_n(v) + beta_n(v))
+	m_inf(v) = alpha_m(v)/(alpha_m(v) + beta_m(v))
+	h_inf(v) = alpha_h(v)/(alpha_h(v) + beta_h(v))
+	
+	temperature_factor(t) = 3^((t - 6.3) / 10)
+end
 
-    # Hodgkin-Huxley parameters
+# ╔═╡ 679247f5-bfc8-42b5-843c-0dd03923c5be
+function hh_tw_ode!(du, u, p, ξ)
+    V, dV, n, m, h = u
+
+    INa = p.gNa * m^3 * h * (V - p.ENa)
+    IK  = p.gK  * n^4 * (V - p.EK)
+    IL  = p.gL  * (V - p.EL)
+    Iion = INa + IK + IL
+
+    du[1] = dV
+    du[2] = (p.c * p.C * dV + Iion) / p.D
+    du[3] = (p.Tfac / p.c) * (alpha_n(V)*(1 - n) - beta_n(V)*n)
+    du[4] = (p.Tfac / p.c) * (alpha_m(V)*(1 - m) - beta_m(V)*m)
+    du[5] = (p.Tfac / p.c) * (alpha_h(V)*(1 - h) - beta_h(V)*h)
+    return nothing
+end
+
+# ╔═╡ ef30851a-a0b8-42a2-9773-4d905ce0b3ce
+# Function to create default parameters
+function default_tw_params()
     gNa, gK, gL = 120.0, 36.0, 0.3
     ENa, EK, EL = 50.0, -77.0, -54.4
     C = 1.0
-	T = 10.
-
-	I_stim = 200.
-	p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_stim)
-	
+    V_rest = -65.0
+    T = 10.0
+    D = 1.0
+    c = 0.5  # Initial guess for wave speed
+    
+    HH_TW_Params(
+        gK, gNa, gL, EK, ENa, EL, V_rest,
+        temperature_factor(T), C, 0.0, D, c
+    )
 end
 
-# ╔═╡ c5558481-185a-47cb-b508-da4d3db2f14d
-begin
-	function alpha_n(v)
-        vred = v + 65
-        0.01 * (10.0 - vred) / (exp((10.0 - vred)/10.0) - 1.0)
-    end
-    function beta_n(v)
-        vred = v + 65
-        0.125 * exp(-vred / 80.0)
-    end
-    function alpha_m(v)
-        vred = v + 65
-        0.1 * (25.0 - vred) / (exp((25.0 - vred)/10.0) - 1.0)
-    end
-    function beta_m(v)
-        vred = v + 65
-        4.0 * exp(-vred / 18.0)
-    end
-    function alpha_h(v)
-        vred = v + 65
-        0.07 * exp(-vred / 20.0)
-    end
-    function beta_h(v)
-        vred = v + 65
-        1.0 / (exp((30.0 - vred)/10.0) + 1.0)
-    end
-
-    n_inf(v) = alpha_n(v)/(alpha_n(v) + beta_n(v))
-    m_inf(v) = alpha_m(v)/(alpha_m(v) + beta_m(v))
-    h_inf(v) = alpha_h(v)/(alpha_h(v) + beta_h(v))
-end
-
-# ╔═╡ 8665b648-b087-4fc3-a1f3-01741bcd9756
-function laplacian_matrix(N, dx)
-        main = -2 * ones(N)
-        off = ones(N-1)
-        A = spdiagm(-1 => off, 0 => main, 1 => off) / dx^2
-        A[1,:] .= 0;  A[end,:] .= 0    # Dirichlet: boundary rows are zero (V fixed)
-        return A
-end
-
-# ╔═╡ 33b68081-9142-4f99-8eaa-29ce798b5a6f
-Δ = laplacian_matrix(N, dx)
-
-# ╔═╡ 71ed4503-1847-44c3-8061-10f7f071036b
-# Vector ODE system: [V₁..V_N, n₁..n_N, m₁..m_N, h₁..h_N]
-function hh_cable!(du, u, p, t)
-
-	# Extract quantities from the state vector
-	V = @view u[1:N]
-	n = @view u[N+1:2N]
-	m = @view u[2N+1:3N]
-	h = @view u[3N+1:4N]
-	dV = @view du[1:N]
-	dn = @view du[N+1:2N]
-	dm = @view du[2N+1:3N]
-	dh = @view du[3N+1:4N]
-	
-	# Laplacian for V, zero at boundaries
-	diffV = D * (Δ * V)
-	
-	I_ext = zeros(N)
-	stim = convert(Int, round(N/2)) : convert(Int, round(N/2 + 10))
-	if 0.0 < t < 8.0
-		I_ext[stim] .= p.I_stim    # μA/cm²
-	end
-
-	for i in 1:N
-		I_Na = p.gNa * m[i]^3 * h[i] * (V[i] - p.ENa)
-		I_K  = p.gK * n[i]^4 * (V[i] - p.EK)
-		I_L  = p.gL * (V[i] - p.EL)
-		dV[i] = (diffV[i] - I_Na - I_K - I_L + I_ext[i]) / C
-		dn[i] = p.T_fac * (alpha_n(V[i]) * (1.0 - n[i]) - beta_n(V[i]) * n[i])
-		dm[i] = p.T_fac * (alpha_m(V[i]) * (1.0 - m[i]) - beta_m(V[i]) * m[i])
-		dh[i] = p.T_fac * (alpha_h(V[i]) * (1.0 - h[i]) - beta_h(V[i]) * h[i])
-	end
-	nothing
-end
-
-# ╔═╡ 6ce2b2d4-9942-413b-9e90-bd28be18a0b2
-# Vector ODE system: [V₁..V_N, n₁..n_N, m₁..m_N, h₁..h_N]
-function hh_cable_bif!(du, u, p)
-
-	# Extract quantities from the state vector
-	V = @view u[1:N]
-	n = @view u[N+1:2N]
-	m = @view u[2N+1:3N]
-	h = @view u[3N+1:4N]
-	dV = @view du[1:N]
-	dn = @view du[N+1:2N]
-	dm = @view du[2N+1:3N]
-	dh = @view du[3N+1:4N]
-	
-	# Laplacian for V, zero at boundaries
-	diffV = D * (Δ * V)
-	
-	I_ext = zeros(N)
-	stim = convert(Int, round(N/2)) : convert(Int, round(N/2 + 10))
-	
-	I_ext[stim] .= p.I_stim    # μA/cm²
-
-	for i in 1:N
-		I_Na = p.gNa * m[i]^3 * h[i] * (V[i] - p.ENa)
-		I_K  = p.gK * n[i]^4 * (V[i] - p.EK)
-		I_L  = p.gL * (V[i] - p.EL)
-		dV[i] = (diffV[i] - I_Na - I_K - I_L + I_ext[i]) / C
-		dn[i] = p.T_fac * (alpha_n(V[i]) * (1.0 - n[i]) - beta_n(V[i]) * n[i])
-		dm[i] = p.T_fac * (alpha_m(V[i]) * (1.0 - m[i]) - beta_m(V[i]) * m[i])
-		dh[i] = p.T_fac * (alpha_h(V[i]) * (1.0 - h[i]) - beta_h(V[i]) * h[i])
-	end
-	[dV, dn, dm, dh]
-end
-
-# ╔═╡ 7909bd13-6eda-4b67-9d32-57ba888a97ff
-
-
-# ╔═╡ f9eb37e0-56a5-11f0-0578-1997f21e75f8
-begin
-
-    # Initial condition (rest, with a pulse at center)
-    Vrest = -65.0
-    V0 = Vrest * ones(N)
-    n0 = n_inf(Vrest) * ones(N)
-    m0 = m_inf(Vrest) * ones(N)
-    h0 = h_inf(Vrest) * ones(N)
-    # Optionally, small pulse
-	slice = convert(Int, round(N/2)) : convert(Int, round(N/2 + 20))
-    V0[slice] .+= 0.0
-    u0 = vcat(V0, n0, m0, h0)
-    tspan = (0.0, 10.0)
-
-
+# ╔═╡ 711374af-0b78-4609-89af-4e277e0fb6cb
+# Traveling wave ODE system
+# State variables: [V, V', n, m, h] where V' is dV/dξ
+function hh_traveling_wave!(du, u, p::HH_TW_Params, ξ)
+    V, V_prime, n, m, h = u
+    
+    # Second derivative of V with respect to ξ
+    V_second = (1.0/p.D) * (
+        p.c * V_prime +  # Convection term from traveling wave transformation
+        (p.gNa * m^3 * h * (V - p.ENa) +
+         p.gK * n^4 * (V - p.EK) +
+         p.gL * (V - p.EL) - p.I_base) / p.C
+    )
+    
+    # System of first-order ODEs
+    du[1] = V_prime  # dV/dξ
+    du[2] = V_second  # d²V/dξ²
+    du[3] = (p.Tfac * (alpha_n(V) * (1.0 - n) - beta_n(V) * n)) / p.c  # dn/dξ
+    du[4] = (p.Tfac * (alpha_m(V) * (1.0 - m) - beta_m(V) * m)) / p.c  # dm/dξ
+    du[5] = (p.Tfac * (alpha_h(V) * (1.0 - h) - beta_h(V) * h)) / p.c  # dh/dξ
+    
+    nothing
 end
 
 
-# ╔═╡ 50f0f0ad-a04d-4256-a063-8e195b887ee0
-prob = ODEProblem(hh_cable!, u0, tspan, p)
-
-
-# ╔═╡ adffbd6a-21ad-4d34-a3c2-b62af11061cc
-sol = solve(prob, TRBDF2(), saveat=0.01)
-
-# ╔═╡ b8007ff4-0857-4d76-ae3a-a6b6e1d0d147
-
-begin
-    Nt = length(sol.t)
-    Nspace = N
-
-    Vmat = zeros(Nt, Nspace)
-    nmat = zeros(Nt, Nspace)
-    mmat = zeros(Nt, Nspace)
-    hmat = zeros(Nt, Nspace)
-
-    INa_mat = zeros(Nt, Nspace)
-    IK_mat  = zeros(Nt, Nspace)
-    IL_mat  = zeros(Nt, Nspace)
-
-    for i in 1:Nt
-        u = sol[i]
-        V = @view u[1:Nspace]
-        n = @view u[Nspace+1 : 2Nspace]
-        m = @view u[2Nspace+1 : 3Nspace]
-        h = @view u[3Nspace+1 : 4Nspace]
-
-        Vmat[i, :] = V
-        nmat[i, :] = n
-        mmat[i, :] = m
-        hmat[i, :] = h
-
-        @inbounds for j in 1:Nspace
-            INa_mat[i,j] = gNa * m[j]^3 * h[j] * (V[j] - ENa)
-            IK_mat[i,j]  = gK  * n[j]^4       * (V[j] - EK)
-            IL_mat[i,j]  = gL  * (V[j] - EL)
+# ╔═╡ d8837949-2d3a-47d7-a30d-4a841ca4c30c
+# Setup and solve the traveling wave problem
+function solve_traveling_wave(p::HH_TW_Params; ξspan=(-50.0, 50.0))
+    # Initial conditions for traveling wave
+    V_rest = p.V_rest
+    V_excited = 20.0  # Approximate excited state
+    
+    # Setup initial condition as a sharp transition
+    function initial_condition(ξ)
+        if ξ < 0
+            return [V_excited, 0.0, n_inf(V_excited), m_inf(V_excited), h_inf(V_excited)]
+        else
+            return [V_rest, 0.0, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
         end
     end
-
-    # Potential and gating variable heatmaps
-    pV = heatmap(x, sol.t, Vmat, xlabel="x (cm)", ylabel="t (ms)", colorbar_title="V (mV)",
-                 title="Membrane Potential V(x,t)")
-    pn = heatmap(x, sol.t, nmat, xlabel="x (cm)", ylabel="t (ms)", colorbar_title="n",
-                 title="n-Gating Variable")
-    pm = heatmap(x, sol.t, mmat, xlabel="x (cm)", ylabel="t (ms)", colorbar_title="m",
-                 title="m-Gating Variable")
-    ph = heatmap(x, sol.t, hmat, xlabel="x (cm)", ylabel="t (ms)", colorbar_title="h",
-                 title="h-Gating Variable")
-
-    # Current heatmaps
-    pNa = heatmap(x, sol.t, INa_mat, xlabel="x (cm)", ylabel="t (ms)", colorbar_title="I_Na (μA/cm²)",
-                  title="Sodium Current I_Na")
-    pK  = heatmap(x, sol.t, IK_mat,  xlabel="x (cm)", ylabel="t (ms)", colorbar_title="I_K (μA/cm²)",
-                  title="Potassium Current I_K")
-    pL  = heatmap(x, sol.t, IL_mat,  xlabel="x (cm)", ylabel="t (ms)", colorbar_title="I_L (μA/cm²)",
-                  title="Leak Current I_L")
-
-    # Arrange into 3x2 layout
-    plot(pV, pn, pm, ph, pNa, pK, pL, layout=(3,3), size=(1800, 1800))
+    
+    # Create ODE problem
+    prob = ODEProblem(hh_traveling_wave!, initial_condition(ξspan[1]), ξspan, p)
+    
+    # Solve
+    sol = solve(prob, TRBDF2())
+    return sol
 end
 
 
-# ╔═╡ 84c08558-7e31-4457-b012-f94a9e7007cc
+# ╔═╡ 9a17fb9e-87f2-4bb0-8665-5d324a5ec801
+p = HH_TW_Params(36.0, 120.0, 0.3, -77.0, 50.0, -54.4, -65.0, temperature_factor(10.0), 1.0, 0.0, 1.0, 0.)
+
+# ╔═╡ 6d4da0bf-f0bf-4d14-a0b8-7ea0ef42ca0d
+p_tw = default_tw_params()
 
 
-# ╔═╡ e3687ad2-5165-4e8a-bbb1-76443697d07c
-# ╠═╡ disabled = true
-#=╠═╡
-begin
-    tsel = [1, round(Int,Nt/10), round(Int,Nt/5), round(Int,Nt/2), Nt]
-    p2 = plot(x, Vmat[tsel[1],:], label="t=$(sol.t[tsel[1]]) ms", xlabel="x (cm)", ylabel="V (mV)")
-    for j in 2:length(tsel)
-        plot!(x, Vmat[tsel[j],:], label="t=$(sol.t[tsel[j]]) ms")
-    end
-    p2
+# ╔═╡ 0b2095ac-b1e9-497c-ae77-3ac4a9d42ebe
+sol_tw = solve_traveling_wave(p_tw)
+
+# ╔═╡ 71d40e0b-09f4-4505-a349-012b757d6c73
+function plot_traveling_wave(sol)
+    ξ = sol.t
+    V = [u[1] for u in sol.u]
+    
+    plot(ξ, V, 
+         xlabel="ξ = x - ct", 
+         ylabel="Membrane Potential (mV)",
+         title="Hodgkin-Huxley Traveling Wave Solution",
+         label="V(ξ)")
 end
-  ╠═╡ =#
 
-# ╔═╡ 3c2cf7dc-089c-4a62-8242-458dd40c535a
-@gif for i in 1:Nt
-    plot(x, Vmat[i, :],
-         xlabel = "x (cm)", ylabel = "V (mV)",
-         title = "Time: $(round(sol.t[i], digits=2)) ms",
-         ylim = extrema(Vmat),  
-         label = false)
-end every 5  
+# ╔═╡ 20d961ca-ec63-446a-b0e8-af19ff9c5dc5
 
-# ╔═╡ e8dd08d7-460d-4903-96c9-1d64644f491f
-# continuation options
-opts_br = ContinuationPar(
-	p_min = -2.0, 
-	p_max = 4000.0, 
-	ds=-0.002,
-	dsmax = 4.,
-	n_inversion = 8, 
-	detect_bifurcation = 3,
-	# number of eigenvalues
-	nev = 6,
-	# maximum number of continuation steps
-	max_steps = 1000
-	)
-
-# ╔═╡ 0ac58d30-14bb-4790-a627-422af720cf7f
-# function to record information from a solution
-recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
-
-# ╔═╡ 899177f3-2de1-43ff-8b8c-5a6685f91361
-prob_bif = BifurcationProblem(hh_cable_bif!, u0, p, (@optic _.I_stim), record_from_solution = recordFromSolution)
-
-# ╔═╡ f1eb9259-64a1-4b0f-a62e-cc1241fa1044
-br = continuation(prob_bif, PALC(), opts_br, bothside = true)
-
-# ╔═╡ 082addae-ba30-4a8b-8bb4-1049bc8b25aa
-@show br
+plot_traveling_wave(sol_tw)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -348,17 +167,16 @@ DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
-PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [compat]
 BifurcationKit = "~0.4.16"
 DifferentialEquations = "~7.16.1"
 ForwardDiff = "~1.0.1"
 NLsolve = "~4.5.1"
+NPZ = "~0.4.3"
 Plots = "~1.40.13"
-PlutoUI = "~0.7.23"
 """
 
 # ╔═╡ 00000000-0000-0000-0000-000000000002
@@ -367,7 +185,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "2287ce4801b8e2506412ddbe5e57ff43a6057532"
+project_hash = "216a42b57094e9c327a3cf6ff6b77da60bab9da3"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "e2478490447631aedba0823d4d7a80b2cc8cdb32"
@@ -379,12 +197,6 @@ weakdeps = ["ChainRulesCore", "ConstructionBase", "EnzymeCore"]
     ADTypesChainRulesCoreExt = "ChainRulesCore"
     ADTypesConstructionBaseExt = "ConstructionBase"
     ADTypesEnzymeCoreExt = "EnzymeCore"
-
-[[deps.AbstractPlutoDingetjes]]
-deps = ["Pkg"]
-git-tree-sha1 = "6e1d2a35f2f90a4bc7c2ed98079b2ba09c35b83a"
-uuid = "6e696c72-6542-2067-7265-42206c756150"
-version = "1.3.2"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "MacroTools"]
@@ -549,9 +361,9 @@ version = "0.1.6"
 
 [[deps.BlockArrays]]
 deps = ["ArrayLayouts", "FillArrays", "LinearAlgebra"]
-git-tree-sha1 = "a8c0f363186263d75e97a41878d10dd842797561"
+git-tree-sha1 = "c633e7cea8a6eb9bed5d67e8fb184df5789b82e6"
 uuid = "8e7c35d0-a365-5155-bbbb-fb81a777f24e"
-version = "1.6.3"
+version = "1.5.0"
 weakdeps = ["Adapt", "BandedMatrices"]
 
     [deps.BlockArrays.extensions]
@@ -1091,6 +903,16 @@ version = "1.1.2"
     ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.17.0"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -1262,24 +1084,6 @@ deps = ["LinearAlgebra", "OpenLibm_jll", "SpecialFunctions"]
 git-tree-sha1 = "68c173f4f449de5b438ee67ed0c9c748dc31a2ec"
 uuid = "34004b35-14d8-5ef3-9330-4cdb6864b03a"
 version = "0.3.28"
-
-[[deps.Hyperscript]]
-deps = ["Test"]
-git-tree-sha1 = "8d511d5b81240fc8e6802386302675bdf47737b9"
-uuid = "47d2ed2b-36de-50cf-bf87-49c2cf4b8b91"
-version = "0.0.4"
-
-[[deps.HypertextLiteral]]
-deps = ["Tricks"]
-git-tree-sha1 = "7134810b1afce04bbc1045ca1985fbe81ce17653"
-uuid = "ac1192a8-f4b3-4bfe-ba22-af5b92cd3ab2"
-version = "0.9.5"
-
-[[deps.IOCapture]]
-deps = ["Logging", "Random"]
-git-tree-sha1 = "b6d6bfdd7ce25b0f9b2f6b3dd56b2673a66c8770"
-uuid = "b5f81e59-6552-4d32-b1f0-c071b021bf89"
-version = "0.2.5"
 
 [[deps.IfElse]]
 git-tree-sha1 = "debdd00ffef04665ccbb3e150747a77560e8fad1"
@@ -1723,6 +1527,12 @@ git-tree-sha1 = "019f12e9a1a7880459d0173c182e6a99365d7ac1"
 uuid = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 version = "4.5.1"
 
+[[deps.NPZ]]
+deps = ["FileIO", "ZipFile"]
+git-tree-sha1 = "60a8e272fe0c5079363b28b0953831e2dd7b7e6f"
+uuid = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+version = "0.4.3"
+
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
 git-tree-sha1 = "9b8215b1ee9e78a293f99797cd31375471b2bcae"
@@ -2135,12 +1945,6 @@ version = "1.40.13"
     IJulia = "7073ff75-c697-5162-941a-fcdaad2a7d2a"
     ImageInTerminal = "d8c32880-2388-543b-8c61-d9f865259254"
     Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
-
-[[deps.PlutoUI]]
-deps = ["AbstractPlutoDingetjes", "Base64", "Dates", "Hyperscript", "HypertextLiteral", "IOCapture", "InteractiveUtils", "JSON", "Logging", "Markdown", "Random", "Reexport", "UUIDs"]
-git-tree-sha1 = "5152abbdab6488d5eec6a01029ca6697dff4ec8f"
-uuid = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
-version = "0.7.23"
 
 [[deps.PoissonRandom]]
 deps = ["Random"]
@@ -2733,11 +2537,6 @@ git-tree-sha1 = "0c45878dcfdcfa8480052b6ab162cdd138781742"
 uuid = "3bb67fe8-82b1-5028-8e26-92a6c54297fa"
 version = "0.11.3"
 
-[[deps.Tricks]]
-git-tree-sha1 = "6cae795a5a9313bbb4f60683f7263318fc7d1505"
-uuid = "410a4b4d-49e4-4fbc-ab6d-cb71b17b3775"
-version = "0.1.10"
-
 [[deps.TruncatedStacktraces]]
 deps = ["InteractiveUtils", "MacroTools", "Preferences"]
 git-tree-sha1 = "ea3e54c2bdde39062abf5a9758a23735558705e1"
@@ -2967,6 +2766,12 @@ git-tree-sha1 = "a63799ff68005991f9d9491b6e95bd3478d783cb"
 uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.6.0+0"
 
+[[deps.ZipFile]]
+deps = ["Libdl", "Printf", "Zlib_jll"]
+git-tree-sha1 = "f492b7fe1698e623024e873244f10d89c95c340a"
+uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
+version = "0.10.1"
+
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
@@ -3091,31 +2896,17 @@ version = "1.8.1+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═593aba2c-af3c-41c0-b5d2-5859e1499523
-# ╟─bad77a2e-e1a3-4fee-8e80-cfd6842e9bc0
-# ╠═b8adf5b1-a7b7-42ef-bff6-69cf11ce38c9
-# ╟─01da6539-0054-4c66-bb24-360f4c1c88c2
-# ╟─8a1313e4-6aa6-4846-9c2e-e00843fd487e
-# ╠═9f0e001c-7f98-45ec-859e-b57f27a4aba7
-# ╠═44daa7d6-b5d6-452b-89ec-e3e626eeab3d
-# ╠═c899ae62-2d3c-421b-b0c8-402b5a0c09ec
-# ╠═c5558481-185a-47cb-b508-da4d3db2f14d
-# ╠═8665b648-b087-4fc3-a1f3-01741bcd9756
-# ╠═33b68081-9142-4f99-8eaa-29ce798b5a6f
-# ╠═71ed4503-1847-44c3-8061-10f7f071036b
-# ╠═6ce2b2d4-9942-413b-9e90-bd28be18a0b2
-# ╠═7909bd13-6eda-4b67-9d32-57ba888a97ff
-# ╠═f9eb37e0-56a5-11f0-0578-1997f21e75f8
-# ╠═50f0f0ad-a04d-4256-a063-8e195b887ee0
-# ╠═adffbd6a-21ad-4d34-a3c2-b62af11061cc
-# ╠═b8007ff4-0857-4d76-ae3a-a6b6e1d0d147
-# ╠═84c08558-7e31-4457-b012-f94a9e7007cc
-# ╟─e3687ad2-5165-4e8a-bbb1-76443697d07c
-# ╠═3c2cf7dc-089c-4a62-8242-458dd40c535a
-# ╠═e8dd08d7-460d-4903-96c9-1d64644f491f
-# ╠═0ac58d30-14bb-4790-a627-422af720cf7f
-# ╠═899177f3-2de1-43ff-8b8c-5a6685f91361
-# ╠═f1eb9259-64a1-4b0f-a62e-cc1241fa1044
-# ╠═082addae-ba30-4a8b-8bb4-1049bc8b25aa
+# ╠═1be2e9b0-6baf-11f0-2b92-3983f2abff1a
+# ╠═7e6d5e25-fba8-4e18-b9a0-7de314b170b2
+# ╠═9c7a5121-1dd2-479b-a09a-6dab46616cdc
+# ╠═679247f5-bfc8-42b5-843c-0dd03923c5be
+# ╠═ef30851a-a0b8-42a2-9773-4d905ce0b3ce
+# ╠═711374af-0b78-4609-89af-4e277e0fb6cb
+# ╠═d8837949-2d3a-47d7-a30d-4a841ca4c30c
+# ╠═9a17fb9e-87f2-4bb0-8665-5d324a5ec801
+# ╠═6d4da0bf-f0bf-4d14-a0b8-7ea0ef42ca0d
+# ╠═0b2095ac-b1e9-497c-ae77-3ac4a9d42ebe
+# ╠═71d40e0b-09f4-4505-a349-012b757d6c73
+# ╠═20d961ca-ec63-446a-b0e8-af19ff9c5dc5
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

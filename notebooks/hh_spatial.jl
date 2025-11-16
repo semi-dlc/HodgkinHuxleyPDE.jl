@@ -1,6 +1,7 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# spatially extended Hodgkin-Huxley model, discretized by method of lines
 using Markdown
 using InteractiveUtils
 

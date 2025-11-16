@@ -1,6 +1,8 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# numerical simulation of the Hodgkin-Huxley system including detection of fixed points and more sophisticated phase plots
+
 using Markdown
 using InteractiveUtils
 
@@ -10,12 +12,13 @@ begin
 	using Plots
 	using PlutoUI
 	using ForwardDiff
-	using GLMakie
+	using CairoMakie
 	using NLsolve
 	using ColorTypes
 	using StatsBase 
-	#using DataFrames
-	#using CSV
+	using DataFrames
+	using CSV
+	using NPZ
 	#using BifurcationKit
 end
 
@@ -27,6 +30,8 @@ begin
 	if giant_axon
 		type = "giant squid axon"
 	elseif pyds
+		type = "cortical oscillatory neuron"
+	else
 		type = "cortical pyramidal neuron"
 	end
 end
@@ -118,7 +123,7 @@ begin
 		ENa = 55.0
 		EL = -65.
 		C = 1.
-		V_rest = -69.  # See to which value it converges in steady state
+		V_rest = -63.  # See to which value it converges in steady state
 	end
 
 
@@ -202,121 +207,30 @@ end
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-begin
-	I_stim = 6.
-	I_base = 0.
-end
+
+
+# ╔═╡ 7a915c16-4a04-43dd-bddb-fd7f5aa87f28
+
 
 # ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
-T = 6.3
 
-# ╔═╡ 04da163b-44a2-4da7-988c-c98cc515a4f4
-temp_factor = temperature_factor(T)
-
-# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
-@info T
 
 # ╔═╡ 851b3091-59a6-40dd-80eb-6314b4f1c5d3
 # Time span
-tspan = (0.0, 100.0)
+tspan = (0.0, 10.0)
 
 # ╔═╡ 948a3ada-b8e7-4c44-909e-6de1cde29dc8
 md"For higher temperatures, we can observe (singular) spikes without stimulation. For different parameters, periodic spiking is possible. Furthermore, it shows periodic doubling behavior for a region closely around T=19C."
 
-# ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
-# Define the problem
-p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_stim, I_base)
-
-# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
-begin
-	# Initial conditions
-	u0 = find_fixpoint(p)
-	
-	@show u0
-
-	
-end
-
-# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-@show u0
-
-# ╔═╡ e4726355-ea88-42b5-8daf-3cd6807bf95d
-begin
-	p_stat = deepcopy(p)
-	#p_stat.I_stim = 0.
-	p_system = deepcopy(p)
-	p_system.I_base = 0.
-	fixed_point_u = find_fixpoint(p_system)
-	@info fixed_point_u
-end
-
-# ╔═╡ c47d1474-239d-4148-82ed-d6c48dbf9e73
-probODE = ODEProblem(hh!, u0, tspan, p)
-
-# ╔═╡ f65547a1-28c4-4fe9-8ca8-074502e0bc73
-sol = solve(probODE, TRBDF2(), abstol=10e-7, dtmax=1e-2)
-
-
-# ╔═╡ f402d81a-798b-4d04-bc0c-9a8fac5d756d
-
-
-# ╔═╡ 2151ee60-c6b4-414c-a9a5-f72836dd6091
-idx = findall(t -> t ≥ 0.0, sol.t) # only after 10 ms
-
-# ╔═╡ 6dc2c03b-44b7-44c9-a636-bb39dec6185f
-sol.t
-
-# ╔═╡ 8f758272-6689-479d-a6e7-9a537d3efc12
-begin
-	sol_vals = sol[idx]
-	t_vals = sol_vals.t                    # Time values
-	V_vals = [sol_vals[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
-	m_vals = [sol_vals[i][2] for i in eachindex(t_vals)]  # Gating variable m
-	h_vals = [sol_vals[i][3] for i in eachindex(t_vals)]  # Gating variable h
-	n_vals = [sol_vals[i][4] for i in eachindex(t_vals)]  # Gating variable n
-end
-
-# ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
-# Plot the results
-Plots.plot(sol[idx], vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="$type at temperature $T °C, I_stim $I_stim μA/cm^2", size=(800, 800), yticks=-100:20:100)#, ylims=[-0., 30.], )
-
-
-# ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
-begin
-	nmh_plot = Plots.plot(sol[idx], vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], title="$type at temperature $T °C, I_stim $I_stim μA/cm^2",  size=(800, 600))
-	Plots.plot!(nmh_plot,t_vals, fill(fixed_point_u[2], length(t_vals)), color=:blue, linestyle=:dash, label="n*")
-	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[3], length(t_vals)), color=:orange, linestyle=:dash, label="m*")
-	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[4], length(t_vals)), color=:green, linestyle=:dash, label="h*")
-	nmh_plot
-end
-
-# ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
-begin
-
-    # Phase plots: V vs gating variables
-    Plots.plot(V_vals, n_vals, label="V vs n", xlabel="Voltage (mV)", ylabel="Gating variable",
-         title = "$type at temperature $T °C, I_stim $I_stim μA/cm² - Phase Plot", titlefontsize=12)
-	Plots.plot!(V_vals, m_vals, label="V vs m")
-    Plots.plot!(V_vals, h_vals, label="V vs h")
-    
-
-    # Mark fixed point for each variable
-	Plots.scatter!([fixed_point_u[1]], [fixed_point_u[2]], label="Fixed Point (n*)", markersize=6, marker=:utriangle)
-    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[3]], label="Fixed Point (m*)", markersize=6,marker=:circle)
-    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[4]], label="Fixed Point (h*)", markersize=6,marker=:diamond)
-
-end
-
-
 # ╔═╡ 4c61e9cf-93af-4be7-8be9-2b1388ce9392
-function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals=Nothing; stride=10)
-    fig = Figure(size = (600, 400))
+function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals=Nothing; stride=4)
+    fig = Figure(size = (1200, 800))
     ax = Axis3(fig[1, 1], xlabel = "n", ylabel = "m", zlabel = "h",
                title = "Phase Space Trajectory (n, m, h), color = V",
 	limits = ((0, 1), (0, 1), (0, 1)))
 
     points = Point3f.(n_vals, m_vals, h_vals)
-    lines!(ax, points, color = V_vals, colormap = :viridis, linewidth = 2)
+    lines!(ax, points, color = V_vals, colormap = :viridis, linewidth = 1.)
 
     idxs = 1:stride:(length(n_vals) - 1)
     for i in idxs
@@ -332,64 +246,116 @@ function plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals=Nothing
 end
 
 # ╔═╡ b98a3e2b-1005-43f3-9334-f520a4a78d13
-function plot_hh_phase_trajectory_2d(n_vals, m_vals, h_vals, V_vals, t_vals=nothing; stride=2)
-    fig = Figure(size = (1400, 1000))  # taller for 2 rows
+function plot_hh_phase_trajectory_2d(n_vals, m_vals, h_vals, V_vals, p; stride=30, arrows=true)
 
-    idxs = 1:stride:(length(n_vals)-1)
+    # Prepare index sampling
+    N = length(n_vals)
+	idxs = round.(Int, range(1, N/2, 5))
 
-    # (1) n vs m colored by Voltage V
-    ax1 = Axis(fig[1, 1], xlabel="n", ylabel="h",
-        title="Phase: (n, h), color = V (mV)", limits=((0,1), (0,1)))
-    lines!(ax1, n_vals, h_vals, color=:gray, linewidth=1)
+	plot_width = 350
+	plot_height = 350
 
-    arrows!(
+	I_fix = 0.
+	p_init = deepcopy(p)
+	p_init.I_base = I_fix
+	u0_fix = find_fixpoint(p_init)
+	V_fixed = u0_fix[1]
+	n_fixed = u0_fix[2]
+	m_fixed = u0_fix[3]
+	h_fixed = u0_fix[4]
+
+	fontsize_title = 23
+    fontsize_label = 22
+    fontsize_tick = 22
+    fontsize_colorbar = 22
+
+    # Set up layout with 2 square plots and 2 colorbars
+    fig = Figure(size=(1100, 450))
+	fig.layout[1, 1] = GridLayout(width=plot_width, height=plot_height)
+    fig.layout[1, 3] = GridLayout(width=plot_width, height=plot_height)
+
+    # Grid layout: 1 row, 4 columns (2 plots + 2 colorbars)
+    # First axis: m vs V, color = n
+    ax1 = Axis(
+		fig[1, 1], 
+		xlabel="m", 
+		ylabel="V [mV]", 
+		title="Phase: (m, V), color = n", 
+		limits=((0,1), (-100, 50)),         
+		xlabelsize=fontsize_label,
+        ylabelsize=fontsize_label,
+        titlesize=fontsize_title,
+        xticklabelsize=fontsize_tick,
+        yticklabelsize=fontsize_tick)
+    #ax1.aspect = DataAspect()
+    l1 = lines!(ax1, m_vals, V_vals, color=n_vals,
+        colormap=:viridis,
+        colorrange=(0, 1), linewidth=1.5)
+	if arrows
+	    ar1 = arrows!(
         ax1,
-        n_vals[idxs], h_vals[idxs],
-        n_vals[idxs .+ 1] .- n_vals[idxs],
-        h_vals[idxs .+ 1] .- h_vals[idxs],
-        arrowsize=10, linewidth=1.5,
-        color=V_vals[idxs],
-        colormap=:viridis,
-        alpha=0.8
-    )
-	@info "cbar1"
-    cbar1 = Colorbar(fig[1, 2], label="Voltage (mV)")
-
-    # (2) V vs n colored by h
-    ax2 = Axis(fig[1, 3], xlabel="V (mV)", ylabel="n",
-        title="Phase: (V, n), color = m",
-        limits=((minimum(V_vals), maximum(V_vals)), (0,1)))
-    lines!(ax2, V_vals, n_vals, color=:gray, linewidth=1)
-
-    arrows!(
-        ax2,
-        V_vals[idxs], n_vals[idxs],
+        m_vals[idxs], V_vals[idxs],
+        m_vals[idxs .+ 1] .- m_vals[idxs],
         V_vals[idxs .+ 1] .- V_vals[idxs],
-        n_vals[idxs .+ 1] .- n_vals[idxs],
-        arrowsize=10, linewidth=1.5,
-        color=m_vals[idxs],
-        colormap=:viridis,
-        alpha=0.8
+        color=:gray,
+        linewidth=1.5,
+        arrowsize=10,
+        alpha=0.7
     )
+	end
 
-    cbar2 = Colorbar(fig[1,4], label="h")
+
+	Makie.scatter!(ax1, [m_fixed], [V_fixed], marker=:x, markersize=15, color=:red, alpha=0.6)
+    Colorbar(fig[1, 2], l1, label="n", labelsize=fontsize_colorbar, ticklabelsize=fontsize_colorbar)
+
+    # Second axis: m vs h, color = V
+    ax2 = Axis(fig[1, 3], xlabel="m", ylabel="h", title="Phase: (m, h), color = V", limits=((0,1), (0,1)),
+	    xlabelsize=fontsize_label,
+        ylabelsize=fontsize_label,
+        titlesize=fontsize_title,
+        xticklabelsize=fontsize_tick,
+        yticklabelsize=fontsize_tick)
+
+
+
+	
+    l2 = lines!(ax2, m_vals, h_vals, 
+        color=V_vals,
+        colormap=:plasma,
+        colorrange=(minimum(V_vals), maximum(V_vals)), linewidth=1.5)
+    if arrows
+		ar2 = arrows!(
+        ax2,
+        m_vals[idxs], h_vals[idxs],
+        m_vals[idxs .+ 1] .- m_vals[idxs],
+        h_vals[idxs .+ 1] .- h_vals[idxs],
+		color=:gray,
+        linewidth=1.5,
+        arrowsize=10,
+        alpha=0.5
+    )
+	end
+	Makie.scatter!(ax2, [m_fixed], [h_fixed], marker=:x, markersize=15, color=:red, alpha=0.6)
+
+    Colorbar(fig[1, 4], l2, label="V [mV]", labelsize=fontsize_colorbar, ticklabelsize=fontsize_colorbar)
 
     return fig
 end
 
 # ╔═╡ eae9dfa3-2a36-42ec-a429-9218401d57be
-function plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_vals, p; stride=2)
-    fig = Figure(resolution = (1400, 1000))
+function plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_vals, p; stride=1)
+    fig = Figure(resolution = (2000, 1000))
     ax1 = Axis(fig[1, 1], xlabel="n", ylabel="h",
         title="Phase: (n, h), color = V (mV)", limits=((0,1), (0,1)))
 
-    idxs = 1:stride:(length(n_vals)-1)
+    idxs = [1, -1]
 
     # Trajectory (n,h), color by V
     lines!(ax1, n_vals, h_vals, color=:gray, linewidth=1)
     # Plot trajectory arrows
     Δn = n_vals[idxs .+ 1] .- n_vals[idxs]
     Δh = h_vals[idxs .+ 1] .- h_vals[idxs]
+	
     arr = arrows!(
         ax1,
         Point2f.(n_vals[idxs], h_vals[idxs]),
@@ -445,54 +411,179 @@ function plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_
 end
 
 # ╔═╡ 4fc1d36a-2170-4ed0-b760-29af5e1ee960
-I_range = [0, 5, 10]
+I_fix = 0.
 
 # ╔═╡ e7f3c483-4d9d-4e04-b6f3-d355421a96b4
-begin
-	V_fixed = []
-	n_fixed = []
-	m_fixed = []
-	h_fixed = []
-	
-end
 
-# ╔═╡ cc370e72-9895-47cb-9b8a-b9e460a66a2d
-for I_init in I_range
-	p_init = deepcopy(p)
-	p_init.I_base = I_init
-	u0 = find_fixpoint(p_init)
-	push!(V_fixed, u0[1])
-	push!(n_fixed, u0[2])
-	push!(m_fixed, u0[3])
-	push!(h_fixed, u0[4])
-end
-
-# ╔═╡ 7eba6a94-f4cc-4da1-9327-88071a242fce
-h_fixed
-
-# ╔═╡ cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
-u0[4]
 
 # ╔═╡ b8a7b05a-2394-4fd5-8d46-f2fac0e49a5d
 #fixed_point_stimulation = plot_hh_phase_trajectory_2d(n_fixed, m_fixed, h_fixed, I_range)
 
+# ╔═╡ a037bdf8-eb01-4365-aacc-f29dc50d7aa5
+begin
+	I_ext = 8.
+	I_base = 0.0
+	T = 6.3
+end
+
+# ╔═╡ 04da163b-44a2-4da7-988c-c98cc515a4f4
+temp_factor = temperature_factor(T)
+
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
+
+# ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
+# Define the problem
+p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_ext, I_base)
+
+# ╔═╡ 30501e41-cfcb-48bf-9061-0d2102a5c7f6
+begin
+	# Initial conditions
+	u0 = find_fixpoint(p)
+	
+	@show u0
+
+	
+end
+
+# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
+@show u0
+
+# ╔═╡ cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
+u0[4]
+
+# ╔═╡ e4726355-ea88-42b5-8daf-3cd6807bf95d
+begin
+	p_stat = deepcopy(p)
+	#p_stat.I_stim = 0.
+	p_system = deepcopy(p)
+	p_system.I_base = 0.
+	fixed_point_u = find_fixpoint(p_system)
+	@info fixed_point_u
+end
+
+# ╔═╡ c47d1474-239d-4148-82ed-d6c48dbf9e73
+probODE = ODEProblem(hh!, u0, tspan, p)
+
+# ╔═╡ f65547a1-28c4-4fe9-8ca8-074502e0bc73
+sol = solve(probODE, TRBDF2(), dtmax=2e-2)
+
+
+# ╔═╡ 2151ee60-c6b4-414c-a9a5-f72836dd6091
+idx = findall(t -> t ≥ 0.0, sol.t) # only after 10 ms
+
+# ╔═╡ 6dc2c03b-44b7-44c9-a636-bb39dec6185f
+sol.t
+
+# ╔═╡ 8f758272-6689-479d-a6e7-9a537d3efc12
+begin
+	sol_vals = sol[idx]
+	t_vals = sol_vals.t                    # Time values
+	V_vals = [sol_vals[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
+	n_vals = [sol_vals[i][2] for i in eachindex(t_vals)]  # Gating variable m
+	m_vals = [sol_vals[i][3] for i in eachindex(t_vals)]  # Gating variable h
+	h_vals = [sol_vals[i][4] for i in eachindex(t_vals)]  # Gating variable n
+end
+
+# ╔═╡ 1833d6ec-8cd2-4d9a-969b-790462671ae5
+begin
+	# Plot the results
+	Plots.plot(sol[idx], vars=(0, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="", size=(600, 600), yticks=-100:20:100)#, ylims=[-0., 30.], )
+	savefig("V.pdf")
+end
+
+# ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
+begin
+	nmh_plot = Plots.plot(sol[idx], vars=(2:4), xlabel="Time (ms)", ylabel="Gating variables", label=["n" "m" "h"], title="",  size=(600, 600))
+	Plots.plot!(nmh_plot,t_vals, fill(fixed_point_u[2], length(t_vals)), color=:blue, linestyle=:dash, label="Stationary value of n")
+	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[3], length(t_vals)), color=:orange, linestyle=:dash, label="Stationary value of m")
+	Plots.plot!(nmh_plot, t_vals, fill(fixed_point_u[4], length(t_vals)), color=:green, linestyle=:dash, label="Stationary value of h")
+	nmh_plot
+	savefig("nmh.pdf")
+end
+
+# ╔═╡ cc370e72-9895-47cb-9b8a-b9e460a66a2d
+begin
+p_init = deepcopy(p)
+p_init.I_base = I_fix
+u0_fix = find_fixpoint(p_init)
+V_fixed = u0_fix[1]
+n_fixed = u0_fix[2]
+m_fixed = u0_fix[3]
+h_fixed = u0_fix[4]
+end
+
+# ╔═╡ f402d81a-798b-4d04-bc0c-9a8fac5d756d
+begin
+	I_eigen = I_ext
+	
+	filename_eig = "outputs/eigenvalues_18.0C.npz"
+	data = npzread(filename_eig)
+    I_ext_eig = data["I_ext"]
+    eigs = data["eigs"]  # complex-valued array
+
+    # Filter indices where I_ext ≈ I_target
+    idx_eig = argmin(abs.(I_ext_eig .- I_eigen))
+	I_ext_found = I_ext_eig[idx_eig]
+	@info I_ext_found I_eigen I_ext I_ext_eig 
+    if isempty(idx)
+        @warn "No eigenvalues found for I = $I_eigen"
+        return
+    end
+	idx_target = findall(abs.(I_ext_found .- I_ext_eig) .< 1e-6)
+	@info idx_target
+    eigs_target = eigs[idx_target, :]
+end
+
+# ╔═╡ af09ff8b-bfd9-41b3-b9e3-b2cccde23365
+eigs_target
+
+# ╔═╡ 96725099-db24-4919-b166-6b80f90bea16
+savefig(Plots.scatter(
+	real.(eigs_target), imag.(eigs_target);
+	xlabel="Re(λ)", ylabel="Im(λ)", marker=:x,
+	title="Eigenvalues at Iₑₓₜ = $I_eigen μA cm⁻²",
+	legend=false, aspect_ratio=1, grid=true, framestyle = :box), "outputs/eigenvalues_plot_$T C_$I_eigen uA.pdf")
+
+# ╔═╡ c50c1f50-f271-47a1-a95b-38a858934201
+begin
+
+    # Phase plots: V vs gating variables
+    Plots.plot(V_vals, n_vals, label="V vs n", xlabel="Voltage (mV)", ylabel="Gating variable",
+         title = "$type at temperature $T °C, I_ext $I_ext μA/cm² - Phase Plot", titlefontsize=12)
+	Plots.plot!(V_vals, m_vals, label="V vs m")
+    Plots.plot!(V_vals, h_vals, label="V vs h")
+    
+
+    # Mark fixed point for each variable
+	Plots.scatter!([fixed_point_u[1]], [fixed_point_u[2]], label="Fixed Point (n*)", markersize=6, marker=:utriangle)
+    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[3]], label="Fixed Point (m*)", markersize=6,marker=:circle)
+    Plots.scatter!([fixed_point_u[1]], [fixed_point_u[4]], label="Fixed Point (h*)", markersize=6,marker=:diamond)
+
+end
+
+
 # ╔═╡ 66c563b9-c71a-4274-9731-1d1800e23d8b
 begin
-	fig_phase_trajectory = plot_hh_phase_trajectory_2d_with_vectorfield(n_vals, m_vals, h_vals, V_vals, p)
-	title!("At temperature $T , initial current $I_base , stimulation current $I_stim")
+	fig_phase_trajectory = plot_hh_phase_trajectory_2d(n_vals, m_vals, h_vals, V_vals, p;stride=700, arrows=true)
+	Makie.scatter!([m_fixed], [V_fixed], colormap=:magma, markersize=10)
+	title!("At temperature $T , initial current $I_base , stimulation current $I_ext")
 	#Makie.scatter!(fig_phase_trajectory[1, 1], n_fixed, m_fixed, color=I_range, colormap=:magma, markersize=10)
 	#Makie.scatter!(fig_phase_trajectory[1, 3], V_fixed, n_fixed, color=I_range, colormap=:magma, markersize=10)
 	#cbar2 = Colorbar(fig_phase_trajectory[1,5],colormap=:magma, label="I_stim", limits=(minimum(I_range), maximum(I_range)))
 	fig_phase_trajectory
 end
 
+# ╔═╡ 77f5d66b-74e1-4c4d-8124-069d7efb13ca
+length(n_vals)
+
 # ╔═╡ b2dc2a4b-888b-4869-9825-137cdd2892d4
-save("outputs/spike_traj_T$T-I_base$I_base-I_stim$I_stim.png", fig_phase_trajectory)
+save("outputs/spike_traj_T$T-I_base$I_base-I_ext$I_ext.svg", fig_phase_trajectory)
 
 # ╔═╡ 0552a44a-dfca-4213-bb4f-687aba00b99e
 begin
 	plot_3d_traj = plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals)
-	Makie.scatter!(plot_3d_traj[1,1], n_fixed, m_fixed, h_fixed, color=I_range, colormap=:magma, markersize=10)
+	Makie.scatter!(plot_3d_traj[1,1], n_fixed, m_fixed, h_fixed, colormap=:magma, markersize=10)
 	Makie.scatter!(plot_3d_traj[1,1], [fixed_point_u[2]], [fixed_point_u[3]], [fixed_point_u[4]], label="Fixed Point (n*)", markersize=6)
     Makie.scatter!([fixed_point_u[1]], [fixed_point_u[3]], label="Fixed Point (m*)", markersize=6)
     Makie.scatter!([fixed_point_u[1]], [fixed_point_u[4]], label="Fixed Point (h*)", markersize=6)
@@ -514,21 +605,27 @@ md"Show trajectory for different tempeartures, 10/20/30 etc., also transition co
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 ColorTypes = "3da002f7-5984-5a60-b8a6-cbb66c0b333f"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
-GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
 NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 
 [compat]
+CSV = "~0.10.15"
+CairoMakie = "~0.13.10"
 ColorTypes = "~0.12.1"
+DataFrames = "~1.7.0"
 DifferentialEquations = "~7.16.0"
 ForwardDiff = "~0.10.38"
-GLMakie = "~0.11.11"
 NLsolve = "~4.5.1"
+NPZ = "~0.4.3"
 Plots = "~1.40.13"
 PlutoUI = "~0.7.23"
 StatsBase = "~0.34.5"
@@ -540,7 +637,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "84f06699f26923c174ab42e6e7d04dc965d3caf5"
+project_hash = "5ef05463d2d6513652c66eee10a12042d2c245ac"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -828,6 +925,24 @@ git-tree-sha1 = "e329286945d0cfc04456972ea732551869af1cfc"
 uuid = "4e9b3aee-d8a1-5a3d-ad8b-7d824db253f0"
 version = "1.0.1+0"
 
+[[deps.CSV]]
+deps = ["CodecZlib", "Dates", "FilePathsBase", "InlineStrings", "Mmap", "Parsers", "PooledArrays", "PrecompileTools", "SentinelArrays", "Tables", "Unicode", "WeakRefStrings", "WorkerUtilities"]
+git-tree-sha1 = "deddd8725e5e1cc49ee205a1964256043720a6c3"
+uuid = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+version = "0.10.15"
+
+[[deps.Cairo]]
+deps = ["Cairo_jll", "Colors", "Glib_jll", "Graphics", "Libdl", "Pango_jll"]
+git-tree-sha1 = "71aa551c5c33f1a4415867fe06b7844faadb0ae9"
+uuid = "159f3aea-2a34-519c-b102-8c37f9878175"
+version = "1.1.1"
+
+[[deps.CairoMakie]]
+deps = ["CRC32c", "Cairo", "Cairo_jll", "Colors", "FileIO", "FreeType", "GeometryBasics", "LinearAlgebra", "Makie", "PrecompileTools"]
+git-tree-sha1 = "9bd45574379e50579a78774334f4a1f1238c0af5"
+uuid = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+version = "0.13.10"
+
 [[deps.Cairo_jll]]
 deps = ["Artifacts", "Bzip2_jll", "CompilerSupportLibraries_jll", "Fontconfig_jll", "FreeType2_jll", "Glib_jll", "JLLWrappers", "LZO_jll", "Libdl", "Pixman_jll", "Xorg_libXext_jll", "Xorg_libXrender_jll", "Zlib_jll", "libpng_jll"]
 git-tree-sha1 = "009060c9a6168704143100f36ab08f06c2af4642"
@@ -967,10 +1082,21 @@ git-tree-sha1 = "fcbb72b032692610bfbdb15018ac16a36cf2e406"
 uuid = "adafc99b-e345-5852-983c-f28acb93d879"
 version = "0.3.1"
 
+[[deps.Crayons]]
+git-tree-sha1 = "249fe38abf76d48563e2f4556bebd215aa317e15"
+uuid = "a8cc5b0e-0ffa-5ad4-8c14-923d3ee1735f"
+version = "4.1.1"
+
 [[deps.DataAPI]]
 git-tree-sha1 = "abe83f3a2f1b857aac70ef8b269080af17764bbe"
 uuid = "9a962f9c-6df0-11e9-0e5d-c546b8b5ee8a"
 version = "1.16.0"
+
+[[deps.DataFrames]]
+deps = ["Compat", "DataAPI", "DataStructures", "Future", "InlineStrings", "InvertedIndices", "IteratorInterfaceExtensions", "LinearAlgebra", "Markdown", "Missings", "PooledArrays", "PrecompileTools", "PrettyTables", "Printf", "Random", "Reexport", "SentinelArrays", "SortingAlgorithms", "Statistics", "TableTraits", "Tables", "Unicode"]
+git-tree-sha1 = "fb61b4812c49343d7ef0b533ba982c46021938a6"
+uuid = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+version = "1.7.0"
 
 [[deps.DataStructures]]
 deps = ["Compat", "InteractiveUtils", "OrderedCollections"]
@@ -1446,23 +1572,11 @@ deps = ["Random"]
 uuid = "9fa8497b-333b-5362-9e8d-4d0656e87820"
 version = "1.11.0"
 
-[[deps.GLFW]]
-deps = ["GLFW_jll"]
-git-tree-sha1 = "13c52cdd876a31240da16dfb51363aed42740325"
-uuid = "f7f18e0c-5ee9-5ccd-a5bf-e8befd85ed98"
-version = "3.4.4"
-
 [[deps.GLFW_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libglvnd_jll", "Xorg_libXcursor_jll", "Xorg_libXi_jll", "Xorg_libXinerama_jll", "Xorg_libXrandr_jll", "libdecor_jll", "xkbcommon_jll"]
 git-tree-sha1 = "fcb0584ff34e25155876418979d4c8971243bb89"
 uuid = "0656b61e-2033-5cc2-a64a-77c0f6c09b89"
 version = "3.4.0+2"
-
-[[deps.GLMakie]]
-deps = ["ColorTypes", "Colors", "FileIO", "FixedPointNumbers", "FreeTypeAbstraction", "GLFW", "GeometryBasics", "LinearAlgebra", "Makie", "Markdown", "MeshIO", "ModernGL", "Observables", "PrecompileTools", "Printf", "ShaderAbstractions", "StaticArrays"]
-git-tree-sha1 = "d16b3b912164f0fd90a393e8c3b6f5a4ec073fde"
-uuid = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
-version = "0.11.11"
 
 [[deps.GPUArraysCore]]
 deps = ["Adapt"]
@@ -1522,6 +1636,12 @@ deps = ["Artifacts", "Gettext_jll", "JLLWrappers", "Libdl", "Libffi_jll", "Libic
 git-tree-sha1 = "b0036b392358c80d2d2124746c2bf3d48d457938"
 uuid = "7746bdde-850d-59dc-9ae8-88ece973131d"
 version = "2.82.4+0"
+
+[[deps.Graphics]]
+deps = ["Colors", "LinearAlgebra", "NaNMath"]
+git-tree-sha1 = "a641238db938fff9b2f60d08ed9030387daf428c"
+uuid = "a2bd30eb-e257-5431-a919-1863eab51364"
+version = "1.1.3"
 
 [[deps.Graphite2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Pkg"]
@@ -1633,6 +1753,19 @@ git-tree-sha1 = "d1b1b796e47d94588b3757fe84fbf65a5ec4a80d"
 uuid = "d25df0c9-e2be-5dd7-82c8-3ad0b3e990b9"
 version = "0.1.5"
 
+[[deps.InlineStrings]]
+git-tree-sha1 = "6a9fde685a7ac1eb3495f8e812c5a7c3711c2d5e"
+uuid = "842dd82b-1e85-43dc-bf29-5d0ee9dffc48"
+version = "1.4.3"
+
+    [deps.InlineStrings.extensions]
+    ArrowTypesExt = "ArrowTypes"
+    ParsersExt = "Parsers"
+
+    [deps.InlineStrings.weakdeps]
+    ArrowTypes = "31f734f8-188a-4ce0-8406-c8a06bd891cd"
+    Parsers = "69de0a69-1ddd-5017-9359-2bf0b02dc9f0"
+
 [[deps.IntelOpenMP_jll]]
 deps = ["Artifacts", "JLLWrappers", "LazyArtifacts", "Libdl"]
 git-tree-sha1 = "0f14a5456bdc6b9731a5682f439a672750a09e48"
@@ -1656,18 +1789,27 @@ weakdeps = ["Unitful"]
 
 [[deps.IntervalArithmetic]]
 deps = ["CRlibm", "MacroTools", "OpenBLASConsistentFPCSR_jll", "Random", "RoundingEmulator"]
-git-tree-sha1 = "694c52705f8b23dc5b39eeac629dc3059a168a40"
+git-tree-sha1 = "79342df41c3c24664e5bf29395cfdf2f2a599412"
 uuid = "d1acc4aa-44c8-5952-acd4-ba5d80a2a253"
-version = "0.22.35"
-weakdeps = ["DiffRules", "ForwardDiff", "IntervalSets", "LinearAlgebra", "RecipesBase", "SparseArrays"]
+version = "0.22.36"
 
     [deps.IntervalArithmetic.extensions]
+    IntervalArithmeticArblibExt = "Arblib"
     IntervalArithmeticDiffRulesExt = "DiffRules"
     IntervalArithmeticForwardDiffExt = "ForwardDiff"
     IntervalArithmeticIntervalSetsExt = "IntervalSets"
     IntervalArithmeticLinearAlgebraExt = "LinearAlgebra"
     IntervalArithmeticRecipesBaseExt = "RecipesBase"
     IntervalArithmeticSparseArraysExt = "SparseArrays"
+
+    [deps.IntervalArithmetic.weakdeps]
+    Arblib = "fb37089c-8514-4489-9461-98f9c8763369"
+    DiffRules = "b552c78f-8df3-52c6-915a-8e097449b14b"
+    ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
+    IntervalSets = "8197267c-284f-5f27-9208-e0e47529a953"
+    LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+    RecipesBase = "3cdcf5f2-1ef4-517c-9805-6587b60abb01"
+    SparseArrays = "2f01184e-e22b-5df5-ae63-d93ebab69eaf"
 
 [[deps.IntervalSets]]
 git-tree-sha1 = "5fbb102dcb8b1a858111ae81d56682376130517d"
@@ -1689,6 +1831,11 @@ weakdeps = ["Dates", "Test"]
     [deps.InverseFunctions.extensions]
     InverseFunctionsDatesExt = "Dates"
     InverseFunctionsTestExt = "Test"
+
+[[deps.InvertedIndices]]
+git-tree-sha1 = "6da3c4316095de0f5ee2ebd875df8721e7e0bdbe"
+uuid = "41ab1584-1d38-5bbf-9106-f11c6c58b48f"
+version = "1.3.1"
 
 [[deps.IrrationalConstants]]
 git-tree-sha1 = "e2222959fbc6c19554dc15174c81bf7bf3aa691c"
@@ -2059,9 +2206,9 @@ version = "1.11.0"
 
 [[deps.MathTeXEngine]]
 deps = ["AbstractTrees", "Automa", "DataStructures", "FreeTypeAbstraction", "GeometryBasics", "LaTeXStrings", "REPL", "RelocatableFolders", "UnicodeFun"]
-git-tree-sha1 = "31a99cb7537f812e1d6be893a71804c35979f1be"
+git-tree-sha1 = "6e64d2321257cc52f47e193407d0659ea1b2b431"
 uuid = "0a4f8689-d25c-4efe-a92b-7142dfc1aa53"
-version = "0.6.4"
+version = "0.6.5"
 
 [[deps.MatrixFactorizations]]
 deps = ["ArrayLayouts", "LinearAlgebra", "Printf", "Random"]
@@ -2099,12 +2246,6 @@ git-tree-sha1 = "c13304c81eec1ed3af7fc20e75fb6b26092a1102"
 uuid = "442fdcdd-2543-5da2-b0f3-8c86c306513e"
 version = "0.3.2"
 
-[[deps.MeshIO]]
-deps = ["ColorTypes", "FileIO", "GeometryBasics", "Printf"]
-git-tree-sha1 = "c009236e222df68e554c7ce5c720e4a33cc0c23f"
-uuid = "7269a6da-0436-5bbc-96c2-40638cbb6118"
-version = "0.5.3"
-
 [[deps.Missings]]
 deps = ["DataAPI"]
 git-tree-sha1 = "ec4f7fbeab05d7747bdf98eb74d130a2a2ed298d"
@@ -2114,12 +2255,6 @@ version = "1.2.0"
 [[deps.Mmap]]
 uuid = "a63ad114-7e13-5084-954f-fe012c677804"
 version = "1.11.0"
-
-[[deps.ModernGL]]
-deps = ["Libdl"]
-git-tree-sha1 = "ac6cb1d8807a05cf1acc9680e09d2294f9d33956"
-uuid = "66fc600b-dfda-50eb-8b99-91cfa97b1301"
-version = "1.1.8"
 
 [[deps.MosaicViews]]
 deps = ["MappedArrays", "OffsetArrays", "PaddedViews", "StackViews"]
@@ -2153,6 +2288,12 @@ deps = ["Distances", "LineSearches", "LinearAlgebra", "NLSolversBase", "Printf",
 git-tree-sha1 = "019f12e9a1a7880459d0173c182e6a99365d7ac1"
 uuid = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 version = "4.5.1"
+
+[[deps.NPZ]]
+deps = ["FileIO", "ZipFile"]
+git-tree-sha1 = "60a8e272fe0c5079363b28b0953831e2dd7b7e6f"
+uuid = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+version = "0.4.3"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -2658,6 +2799,12 @@ git-tree-sha1 = "77b3d3605fc1cd0b42d95eba87dfcd2bf67d5ff6"
 uuid = "647866c9-e3ac-4575-94e7-e3d426903924"
 version = "0.1.2"
 
+[[deps.PooledArrays]]
+deps = ["DataAPI", "Future"]
+git-tree-sha1 = "36d8b4b899628fb92c2749eb488d884a926614d3"
+uuid = "2dfb63ee-cc39-5dd5-95bd-886bf059d720"
+version = "1.4.3"
+
 [[deps.PositiveFactorizations]]
 deps = ["LinearAlgebra"]
 git-tree-sha1 = "17275485f373e6673f7e7f97051f703ed5b15b20"
@@ -2689,6 +2836,12 @@ deps = ["TOML"]
 git-tree-sha1 = "9306f6085165d270f7e3db02af26a400d580f5c6"
 uuid = "21216c6a-2e73-6563-6e65-726566657250"
 version = "1.4.3"
+
+[[deps.PrettyTables]]
+deps = ["Crayons", "LaTeXStrings", "Markdown", "PrecompileTools", "Printf", "Reexport", "StringManipulation", "Tables"]
+git-tree-sha1 = "1101cd475833706e4d0e7b122218257178f48f34"
+uuid = "08abe8d2-0d0c-5749-adfa-8a2ac140af0d"
+version = "2.4.0"
 
 [[deps.Printf]]
 deps = ["Unicode"]
@@ -2942,6 +3095,12 @@ git-tree-sha1 = "3bac05bc7e74a75fd9cba4295cde4045d9fe2386"
 uuid = "6c6a2e73-6563-6170-7368-637461726353"
 version = "1.2.1"
 
+[[deps.SentinelArrays]]
+deps = ["Dates", "Random"]
+git-tree-sha1 = "712fb0231ee6f9120e005ccd56297abbc053e7e0"
+uuid = "91c51154-3ec4-41a3-a24f-3f23e20d615c"
+version = "1.4.8"
+
 [[deps.Serialization]]
 uuid = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 version = "1.11.0"
@@ -3011,9 +3170,9 @@ version = "1.1.0"
 
 [[deps.Sixel]]
 deps = ["Dates", "FileIO", "ImageCore", "IndirectArrays", "OffsetArrays", "REPL", "libsixel_jll"]
-git-tree-sha1 = "2da10356e31327c7096832eb9cd86307a50b1eb6"
+git-tree-sha1 = "0494aed9501e7fb65daba895fb7fd57cc38bc743"
 uuid = "45858cf5-a6b0-47a3-bbea-62219f50df47"
-version = "0.1.3"
+version = "0.1.5"
 
 [[deps.Sockets]]
 uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
@@ -3185,6 +3344,12 @@ deps = ["ArrayInterface", "CloseOpenIntervals", "IfElse", "LayoutPointers", "Lin
 git-tree-sha1 = "f35f6ab602df8413a50c4a25ca14de821e8605fb"
 uuid = "7792a7ef-975c-4747-a70f-980b88e8d1da"
 version = "0.5.7"
+
+[[deps.StringManipulation]]
+deps = ["PrecompileTools"]
+git-tree-sha1 = "725421ae8e530ec29bcbdddbe91ff8053421d023"
+uuid = "892a3eda-7b42-436c-8928-eab12a02cf0e"
+version = "0.4.1"
 
 [[deps.StructArrays]]
 deps = ["ConstructionBase", "DataAPI", "Tables"]
@@ -3387,6 +3552,12 @@ git-tree-sha1 = "5db3e9d307d32baba7067b13fc7b5aa6edd4a19a"
 uuid = "2381bf8a-dfd0-557d-9999-79630e7b1b91"
 version = "1.36.0+0"
 
+[[deps.WeakRefStrings]]
+deps = ["DataAPI", "InlineStrings", "Parsers"]
+git-tree-sha1 = "b1be2855ed9ed8eac54e5caff2afcdb442d52c23"
+uuid = "ea10d353-3f73-51f8-a26c-33c1cb351aa5"
+version = "1.4.2"
+
 [[deps.WebP]]
 deps = ["CEnum", "ColorTypes", "FileIO", "FixedPointNumbers", "ImageCore", "libwebp_jll"]
 git-tree-sha1 = "aa1ca3c47f119fbdae8770c29820e5e6119b83f2"
@@ -3398,6 +3569,11 @@ deps = ["LinearAlgebra", "SparseArrays"]
 git-tree-sha1 = "c1a7aa6219628fcd757dede0ca95e245c5cd9511"
 uuid = "efce3f68-66dc-5838-9240-27a6d6f5f9b6"
 version = "1.0.0"
+
+[[deps.WorkerUtilities]]
+git-tree-sha1 = "cd1659ba0d57b71a464a29e64dbc67cfe83d54e7"
+uuid = "76eceee3-57b5-4d4a-8e66-0e911cebbf60"
+version = "1.6.1"
 
 [[deps.XML2_jll]]
 deps = ["Artifacts", "JLLWrappers", "Libdl", "Libiconv_jll", "Zlib_jll"]
@@ -3561,6 +3737,12 @@ git-tree-sha1 = "6dba04dbfb72ae3ebe5418ba33d087ba8aa8cb00"
 uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.5.1+0"
 
+[[deps.ZipFile]]
+deps = ["Libdl", "Printf", "Zlib_jll"]
+git-tree-sha1 = "f492b7fe1698e623024e873244f10d89c95c340a"
+uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
+version = "0.10.1"
+
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
@@ -3718,6 +3900,7 @@ version = "1.4.1+2"
 # ╟─20749723-db83-49d0-b414-738199bd7656
 # ╠═9b4a2652-4323-4cc1-ae12-94102aa7ae14
 # ╠═867a194c-1904-4054-906e-1ae9e14a0811
+# ╠═7a915c16-4a04-43dd-bddb-fd7f5aa87f28
 # ╠═a5a09f95-ac55-4344-bee6-b8cca141a693
 # ╠═851b3091-59a6-40dd-80eb-6314b4f1c5d3
 # ╟─948a3ada-b8e7-4c44-909e-6de1cde29dc8
@@ -3726,6 +3909,8 @@ version = "1.4.1+2"
 # ╠═c47d1474-239d-4148-82ed-d6c48dbf9e73
 # ╠═f65547a1-28c4-4fe9-8ca8-074502e0bc73
 # ╠═f402d81a-798b-4d04-bc0c-9a8fac5d756d
+# ╠═af09ff8b-bfd9-41b3-b9e3-b2cccde23365
+# ╠═96725099-db24-4919-b166-6b80f90bea16
 # ╠═2151ee60-c6b4-414c-a9a5-f72836dd6091
 # ╠═6dc2c03b-44b7-44c9-a636-bb39dec6185f
 # ╠═8f758272-6689-479d-a6e7-9a537d3efc12
@@ -3738,10 +3923,11 @@ version = "1.4.1+2"
 # ╠═4fc1d36a-2170-4ed0-b760-29af5e1ee960
 # ╠═e7f3c483-4d9d-4e04-b6f3-d355421a96b4
 # ╠═cc370e72-9895-47cb-9b8a-b9e460a66a2d
-# ╠═7eba6a94-f4cc-4da1-9327-88071a242fce
 # ╠═cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
 # ╠═b8a7b05a-2394-4fd5-8d46-f2fac0e49a5d
+# ╠═a037bdf8-eb01-4365-aacc-f29dc50d7aa5
 # ╠═66c563b9-c71a-4274-9731-1d1800e23d8b
+# ╠═77f5d66b-74e1-4c4d-8124-069d7efb13ca
 # ╠═b2dc2a4b-888b-4869-9825-137cdd2892d4
 # ╠═0552a44a-dfca-4213-bb4f-687aba00b99e
 # ╠═19a73dd8-794a-48be-a2a0-1cc4ce9a7823

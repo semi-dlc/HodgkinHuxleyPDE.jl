@@ -1,6 +1,9 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# ramp temperature profile to show hysteresis of the stimulated Hodgkin-Huxley model 
+
+
 using Markdown
 using InteractiveUtils
 
@@ -10,8 +13,13 @@ begin
 	using Plots
 	using PlutoUI
 	using StatsPlots
+	using LaTeXStrings
+	using NPZ
 	#using BifurcationKit
 end
+
+# ╔═╡ 862390fa-4950-47c3-85fe-3a5153411321
+default(titlefontsize=14, guidefontsize=14, tickfontsize=12, legendfontsize=12)
 
 # ╔═╡ 1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 begin
@@ -173,7 +181,7 @@ begin
 	u0 = [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)]
 	
 	# Time span
-	tspan = (0.0, 10000.0)
+	tspan = (0.0, 50000.0)
 	
 end
 
@@ -207,7 +215,7 @@ begin
 	temp_factor = temperature_factor(T)
 
 	t_start_stim = 1000.
-	t_end_stim = 9000.
+	t_end_stim = 49000.
 
 	function I_ramp(t)
 		return ramp(0, I, t_start_stim, t_end_stim, t)
@@ -265,23 +273,27 @@ begin
 	probODE = ODEProblem(hh!, u0, tspan, p)
 	
 	# Solve the ODE
-	sol = solve(probODE, TRBDF2(); dtmax=2e-3, maxiters=1e7)
-
-	# Extract solution components
-	t_vals = sol.t                     # Time values
-	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
-	m_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
-	h_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
-	n_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
-	
+	sol = solve(probODE, TRBDF2(); dtmax=1., maxiters=1e8, saveat=0.2)	
 end
+
+# ╔═╡ cea2a605-f8de-454f-9410-e90fdf637272
+begin
+	# Extract solution components
+	t_vals = sol.t ./ 1000                     # Time values
+	V_vals = [sol[i][1] for i in eachindex(t_vals)]  # Membrane Voltage V
+	n_vals = [sol[i][2] for i in eachindex(t_vals)]  # Gating variable m
+	m_vals = [sol[i][3] for i in eachindex(t_vals)]  # Gating variable h
+	h_vals = [sol[i][4] for i in eachindex(t_vals)]  # Gating variable n
+end
+
+# ╔═╡ 2d1c4929-fee1-4a49-aeef-56609c4e3306
+npzwrite("outputs/temp_ramp_log.npz", t = t_vals, I_ext=Float64.(I_trig.(sol.t)), V = V_vals, n = n_vals, m = m_vals, h = h_vals)
 
 # ╔═╡ 9b28cefd-df65-4683-8526-0a3b1ebfef4c
 md"We see an obvious difference in behaviour when raising the current to 200 uA/cm^2 compared to the other way around."
 
 # ╔═╡ 26479215-f6bf-4af3-9a56-a84cb1726bb8
-plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Temperature", label="T(t)", title="$type, ramp I_stim $I μA/cm^2",  size=(800, 600),
-	titlefontsize=12)
+i_plot = plot(t_vals[1:104:end], I_trig.(sol.t)[1:104:end], xlabel="Time t [ms]", ylabel="Temperature T [°C]", label="T(t)")
 
 # ╔═╡ af16fd92-6748-4a3d-970c-b022a51f3c82
 sol.t
@@ -289,29 +301,32 @@ sol.t
 
 # ╔═╡ 17ea3c89-0ef3-46d7-b4a4-2bbf5f5ec72b
 # Plot the results
-V_plot = plot(sol.t, getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", title="$type, ramp I_stim $I μA/cm^2",  size=(800, 600))
+v_plot = plot(t_vals, getindex.(sol.u, 1), xlabel="Time t [ms]", ylabel="Membrane Potential V [mV]", label="V(t)")
 
 
 # ╔═╡ 8a4bf031-874b-4c6f-8896-b63df1624705
-plot(sol.t,
-	[getindex.(sol.u, 2) getindex.(sol.u, 3) getindex.(sol.u, 4)], 
-	xlabel="Time (ms)", 
-	ylabel="Gating variables", 
-	label=["n" "m" "h"], 
-	title="$type, ramp I_stim $I μA/cm²", 
-	size=(800, 600), 
-	titlefontsize=12, alpha=0.7)
+nmh_plot = plot(t_vals,
+	[m_vals n_vals h_vals], 
+	xlabel="Time t [ms]", 
+	ylabel="Gating variables (n, m, h)", 
+	label=["m" "n" "h"], alpha=0.8, legend_background_color=:transparent, legend=:top)
 
 
 # ╔═╡ e438df90-4962-4fb7-8acf-63f660d80561
-v1_plot = plot(sol.t,getindex.(sol.u, 1), xlabel="Time (ms)", ylabel="Membrane Potential (mV)", label="V(t)", xlim=(12400., 12500.))
+v1_plot = plot(sol.t,getindex.(sol.u, 1), xlabel="Time t [ms]", ylabel="Membrane Potential V [mV]", label="V(t)", xlim=(12400., 12500.))
 
 # ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 
 
 # ╔═╡ 0f72db21-f27a-4492-9337-8948bc94d382
 # ╠═╡ show_logs = false
-i2_plot = plot(sol.t, I_trig.(sol.t), xlabel="Time (ms)", ylabel="Temperature", label="T(t)", xlim=(36400., 36500.))
+savefig(i_plot, "outputs/ramp_temp_I.pdf")
+
+# ╔═╡ 4aac2840-0a4a-4cbc-8d86-4adc5d6c5a1a
+savefig(v_plot, "outputs/ramp_temp_V.pdf")
+
+# ╔═╡ 28c3b908-b503-4fbb-948b-82ef57caddfb
+savefig(nmh_plot, "outputs/ramp_temp_nmh.pdf")
 
 # ╔═╡ b04a402f-9a26-4659-87f6-7e70ffa643fc
 sizeof(sol.t)
@@ -320,12 +335,16 @@ sizeof(sol.t)
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
+LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
 PlutoUI = "7f904dfe-b85e-4ff6-b463-dae2292396a8"
 StatsPlots = "f3b207a7-027a-5e70-b257-86293d7955fd"
 
 [compat]
 DifferentialEquations = "~7.16.0"
+LaTeXStrings = "~1.4.0"
+NPZ = "~0.4.3"
 Plots = "~1.40.9"
 PlutoUI = "~0.7.23"
 StatsPlots = "~0.15.7"
@@ -337,7 +356,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "89dad4895bd4eb618e3264a175805559e77b4530"
+project_hash = "0eb1bf6894751f1ff2a46b02dbacd1b85b4dd935"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "fb97701c117c8162e84dfcf80215caa904aef44f"
@@ -1053,6 +1072,16 @@ version = "1.1.1"
     ReverseDiff = "37e2e3b7-166d-5795-8a7a-e32c996b4267"
     Tracker = "9f7883ad-71c0-57eb-9f7f-b5c9e6d3789c"
 
+[[deps.FileIO]]
+deps = ["Pkg", "Requires", "UUIDs"]
+git-tree-sha1 = "b66970a70db13f45b7e57fbda1736e1cf72174ea"
+uuid = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+version = "1.17.0"
+weakdeps = ["HTTP"]
+
+    [deps.FileIO.extensions]
+    HTTPExt = "HTTP"
+
 [[deps.FileWatching]]
 uuid = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 version = "1.11.0"
@@ -1688,6 +1717,12 @@ deps = ["Distances", "LineSearches", "LinearAlgebra", "NLSolversBase", "Printf",
 git-tree-sha1 = "019f12e9a1a7880459d0173c182e6a99365d7ac1"
 uuid = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 version = "4.5.1"
+
+[[deps.NPZ]]
+deps = ["FileIO", "ZipFile"]
+git-tree-sha1 = "60a8e272fe0c5079363b28b0953831e2dd7b7e6f"
+uuid = "15e1cf62-19b3-5cfa-8e77-841668bca605"
+version = "0.4.3"
 
 [[deps.NaNMath]]
 deps = ["OpenLibm_jll"]
@@ -2988,6 +3023,12 @@ git-tree-sha1 = "6dba04dbfb72ae3ebe5418ba33d087ba8aa8cb00"
 uuid = "c5fb5394-a638-5e4d-96e5-b29de1b5cf10"
 version = "1.5.1+0"
 
+[[deps.ZipFile]]
+deps = ["Libdl", "Printf", "Zlib_jll"]
+git-tree-sha1 = "f492b7fe1698e623024e873244f10d89c95c340a"
+uuid = "a5390f91-8eb1-5f08-bee0-b1d1ffed6cea"
+version = "0.10.1"
+
 [[deps.Zlib_jll]]
 deps = ["Libdl"]
 uuid = "83775a58-1f1d-513f-b197-d71354ab007a"
@@ -3113,6 +3154,7 @@ version = "1.4.1+2"
 
 # ╔═╡ Cell order:
 # ╠═e54bf1f7-a451-4933-88d6-c0d8171dd040
+# ╠═862390fa-4950-47c3-85fe-3a5153411321
 # ╠═ac95a68b-9590-4bbe-b661-417d7b06cc40
 # ╠═1cef8f35-0b5f-4e6d-a44b-9d35ef4548e0
 # ╠═2599bfdb-77f3-43be-8a7c-eb78dacad3b7
@@ -3127,6 +3169,8 @@ version = "1.4.1+2"
 # ╠═96687775-8f32-4fa8-9ea9-1d297e1b3305
 # ╠═867a194c-1904-4054-906e-1ae9e14a0811
 # ╠═092d3650-fead-11ef-31d9-a7d44c56d0cf
+# ╠═cea2a605-f8de-454f-9410-e90fdf637272
+# ╠═2d1c4929-fee1-4a49-aeef-56609c4e3306
 # ╟─9b28cefd-df65-4683-8526-0a3b1ebfef4c
 # ╠═26479215-f6bf-4af3-9a56-a84cb1726bb8
 # ╠═af16fd92-6748-4a3d-970c-b022a51f3c82
@@ -3135,6 +3179,8 @@ version = "1.4.1+2"
 # ╠═e438df90-4962-4fb7-8acf-63f660d80561
 # ╟─8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
 # ╠═0f72db21-f27a-4492-9337-8948bc94d382
+# ╠═4aac2840-0a4a-4cbc-8d86-4adc5d6c5a1a
+# ╠═28c3b908-b503-4fbb-948b-82ef57caddfb
 # ╠═b04a402f-9a26-4659-87f6-7e70ffa643fc
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002

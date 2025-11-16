@@ -1,3 +1,5 @@
+# Script to simulate Hodgkin–Huxley ODEs. Not maintained anymore.
+
 using DifferentialEquations
 using Plots
 using CSV 

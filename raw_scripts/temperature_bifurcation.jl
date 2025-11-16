@@ -1,3 +1,6 @@
+# Attempt to perform a bifurcation analysis of the Hodgkin–Huxley ODEs with temperature as the
+# free parameter
+
 using DifferentialEquations
 using Plots
 using BifurcationKit

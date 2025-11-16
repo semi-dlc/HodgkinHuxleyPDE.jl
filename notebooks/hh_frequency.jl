@@ -1,6 +1,8 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# measuring the rate of spiking
+
 using Markdown
 using InteractiveUtils
 
@@ -28,6 +30,7 @@ begin
 	using ProgressMeter
 	using LaTeXStrings
 	using ImageFiltering
+	using LinearAlgebra
 end
 
 
@@ -217,7 +220,7 @@ begin
     function compute_spike_frequency(I_stim_val; T=6.3, I_base=0.0)
         p_tmp = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_stim_val, I_base)
         u0_tmp = nlsolve(u -> hh_stat!(u, p_tmp), [V_rest, n_inf(V_rest), m_inf(V_rest), h_inf(V_rest)], autodiff=:forward).zero
-		t_end = 500.
+		t_end = 1000.
         prob = ODEProblem(hh!, u0_tmp, (0.0, t_end), p_tmp)
         sol = solve(prob, TRBDF2())
         m_vals = getindex.(sol.u, 3)
@@ -242,32 +245,52 @@ begin
     end
 end
 
-# ╔═╡ 4144f1ad-181e-49c9-856a-b7608d8dda13
-begin
-	t_range = 0.0:1.:29.
-	@show t_range
-end
-
 # ╔═╡ 7ef70711-4d23-404b-aea4-935e4c7740f5
-I_range = 0.0:0.1:200.0
+#I_range = 0.0:0.1:200.0
 
 # ╔═╡ a0c0e632-8fd2-4f6c-884e-8dda0d0b2c1a
 begin
+	"""
 freq_matrix = zeros(length(t_range), length(I_range))
 
 @showprogress 1 "Computing frequencies..." for (i, T_val) in enumerate(t_range)
 	@info T_val
 	for (j, I_val) in enumerate(I_range)
+		continue
 		freq_matrix[i, j] = compute_spike_frequency(I_val; T=T_val, I_base=I_base)
 	end
 end
+	"""
 end
 
 # ╔═╡ 2b72da58-8282-49d6-a49b-319507ec0370
+begin
+file_read = npzread("outputs/frequency.npz")
+freq_matrix = file_read["frequency"] 
+t_range = file_read["t_range"]
+I_range = file_read["I_range"]
+end
+
+# ╔═╡ 4144f1ad-181e-49c9-856a-b7608d8dda13
+begin
+	#t_range = 0:1:29
+	@show t_range
+end
+
+# ╔═╡ a97e0a78-45c1-424e-924f-0f1ad9f6cc24
 
 
-# ╔═╡ 3f5e1985-35d6-4fdb-ad65-596ef86fb6ae
 
+# ╔═╡ fcda5e96-a219-4432-8f20-9bbe786f9b5f
+_median(patch) = median(filter(x->!isnan(x), patch))
+
+# ╔═╡ 22d1c04a-2433-4a09-b64b-4ca60c54a343
+filtered_freq_matrix = similar(freq_matrix)
+
+# ╔═╡ a76f920f-bc90-44af-8c62-87f196042731
+for i in axes(freq_matrix, 1)  # or 2 for column-wise
+    filtered_freq_matrix[i, :] = mapwindow(_median, freq_matrix[i, :], 15)
+end
 
 # ╔═╡ f53d7bc8-38ee-47fe-bc6f-c39ba6dd9abf
 begin
@@ -278,7 +301,7 @@ begin
 	n_rows = n_plots
 	n_cols = 1
 	
-	plt = plot(layout = (n_rows, n_cols), size = (1200, n_plots * 1000), left_margin = 5Plots.mm)
+	plt = plot(layout = (n_rows, n_cols), left_margin = 5Plots.mm, xlims=(0.,200.), framestyle = :box)
 	
 	palette = [RGB(1.0, 0.0, 0.0) * (0.3 + 0.7 * (i-1)/(n_per_plot-1)) for i in 1:n_per_plot] 
 	for i in 1:n_plots
@@ -290,21 +313,24 @@ begin
 	        end
 	        idx = t_indices[idx_idx]
 	        T_val = t_range[idx]
-	        plot!(plt[subplot_idx], I_range, freq_matrix[idx, :],
+	        plot!(plt[subplot_idx], I_range, filtered_freq_matrix[idx, :],
 	              label = "T = $T_val °C", lw = 2, alpha = 0.9, color = RGBA(j/n_per_plot,1-j/n_per_plot,0,0.9))
 	    end
-	    xlabel!(plt[subplot_idx], L"I_{stim} [µA/cm^2]")
-	    ylabel!(plt[subplot_idx], L"Firing Frequency f_{spike} [Hz]")
+	    xlabel!(plt[subplot_idx], "External Current Iₑₓₜ [µA cm⁻²]")
+	    ylabel!(plt[subplot_idx], "Firing Frequency f [Hz]")
 	    t_start = t_range[t_indices[clamp((i - 1) * n_per_plot + 1, 1, end)]]
 	    t_end   = t_range[t_indices[clamp(i * n_per_plot, 1, end)]]
-	    title!(plt[subplot_idx], "Temperature: $t_start – $t_end °C")
+	    title!(plt[subplot_idx], "Temperature T: $t_start – $t_end °C")
 	end
 	
 	display(plt)
 end
 
+# ╔═╡ c15413dc-3a85-488f-a67b-ad904ded3d31
+plt
+
 # ╔═╡ 4aa7f298-4080-4877-a12a-bd1cdb574a79
-savefig(plt, "outputs/frequency.png")
+savefig(plt, "outputs/frequency.pdf")
 
 # ╔═╡ 10d773ae-f41a-4c39-9360-f46bf7cd46cf
 npzwrite("outputs/frequency.npz", Dict("frequency" => freq_matrix, "t_range" => t_range, "I_range" => I_range))
@@ -313,7 +339,7 @@ npzwrite("outputs/frequency.npz", Dict("frequency" => freq_matrix, "t_range" => 
 compute_spike_frequency(47.; T=29.0, I_base=I_base)
 
 # ╔═╡ 9abb3aa0-c705-4a97-8541-d883b00d9e15
-plot(I_range,freq_matrix[28, :])
+plot(I_range,freq_matrix[1, :])
 
 # ╔═╡ c8d61f21-e6b0-49f0-8b64-a7e94d768a34
 I_range[98]
@@ -328,6 +354,7 @@ DifferentialEquations = "0c46a032-eb83-5123-abaf-570d42b7fbaa"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 ImageFiltering = "6a3955dd-da59-5b1f-98d4-e7296123deb5"
 LaTeXStrings = "b964fa9f-0449-5b57-a5c2-d3ea65f4040f"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 NLsolve = "2774e3e8-f4cf-5e23-947b-6d7e65073b56"
 NPZ = "15e1cf62-19b3-5cfa-8e77-841668bca605"
 Plots = "91a5bcdd-55d7-5caf-9e0b-520d859cae80"
@@ -354,7 +381,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.11.3"
 manifest_format = "2.0"
-project_hash = "c9b3fbe343c32d84d657c33be98c624585832e0e"
+project_hash = "e6bf17acbfd71e5395f20b28e77ef33f447e2c35"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "e2478490447631aedba0823d4d7a80b2cc8cdb32"
@@ -3145,8 +3172,12 @@ version = "1.4.1+2"
 # ╠═7ef70711-4d23-404b-aea4-935e4c7740f5
 # ╠═a0c0e632-8fd2-4f6c-884e-8dda0d0b2c1a
 # ╠═2b72da58-8282-49d6-a49b-319507ec0370
-# ╠═3f5e1985-35d6-4fdb-ad65-596ef86fb6ae
+# ╠═a97e0a78-45c1-424e-924f-0f1ad9f6cc24
+# ╠═fcda5e96-a219-4432-8f20-9bbe786f9b5f
+# ╠═22d1c04a-2433-4a09-b64b-4ca60c54a343
+# ╠═a76f920f-bc90-44af-8c62-87f196042731
 # ╠═f53d7bc8-38ee-47fe-bc6f-c39ba6dd9abf
+# ╠═c15413dc-3a85-488f-a67b-ad904ded3d31
 # ╠═4aa7f298-4080-4877-a12a-bd1cdb574a79
 # ╠═10d773ae-f41a-4c39-9360-f46bf7cd46cf
 # ╠═77730565-f7aa-4843-8e79-591603268ca0

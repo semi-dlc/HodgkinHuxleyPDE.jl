@@ -24,3 +24,6 @@ docs/site/
 Manifest.toml
 /exports
 /notebooks/outputs
+/.idea
+/outputs
+/raw_scripts/outputs

@@ -1,6 +1,8 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# an attempt at performing bifurcation analysis of the Hodgkin-Huxley system. Not further developed as PyDSTool was used.
+
 using Markdown
 using InteractiveUtils
 

@@ -1,6 +1,8 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
+# standard numerical simulation of the Hodgkin-Huxley system
+
 using Markdown
 using InteractiveUtils
 
@@ -25,6 +27,8 @@ begin
 	if giant_axon
 		type = "giant squid axon"
 	elseif pyds
+		type = "cortical oscillatory neuron"
+	else
 		type = "cortical pyramidal neuron"
 	end
 end
@@ -99,6 +103,7 @@ begin
 		V_rest = -63. 
 		
 	else
+		# cortical pyramidal
 		alpha_n(v) = (0.02 * (v - 25.0)) / (1.0 - exp((-1.0 * (v - 25.0)) / 9.0))
 		beta_n(v) = (-0.002 * (v - 25.0)) / (1.0 - exp((v - 25.0) / 9.0))
 		
@@ -116,7 +121,7 @@ begin
 		ENa = 55.0
 		EL = -65.
 		C = 1.
-		V_rest = -69.  # See to which value it converges in steady state
+		V_rest = -67.  # See to which value it converges in steady state
 	end
 
 
@@ -189,7 +194,7 @@ end
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
 
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
-I = 100.
+I = 8.
 
 # ╔═╡ a5a09f95-ac55-4344-bee6-b8cca141a693
 T = 6.3
@@ -212,7 +217,7 @@ begin
 	@show u0
 	
 	# Time span
-	tspan = (0.0, 100.0)
+	tspan = (0.0, 10.0)
 	
 end
 
@@ -294,13 +299,13 @@ end
 plot_hh_phase_trajectory(n_vals, m_vals, h_vals, V_vals, t_vals)
 
 # ╔═╡ 8ea3a25d-43ee-4dfa-b240-ca15e5ce2ea8
-md"If we change current, position initial does not vary, but fixed point"
+
 
 # ╔═╡ f64e92cc-d790-4d58-bdf5-14cd213d6f05
-md"If existence of Hopf, single spike very close to Hopf. But trajectory different. Gets drawn into fixed point. Show fixed points? "
+
 
 # ╔═╡ c65fbb40-7e57-4491-85cf-a84f4eddc6b5
-md"Show trajectory for different tempeartures, 10/20/30 etc., also transition continuous->single. Show ~2 cases. Show the attraction of trajectory by varying initial current stimulation"
+
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """

@@ -1,5 +1,5 @@
 # This script uses hh_pde.jl to solve the Hodgkin-Huxley partial differential equation system 
-# under stimulation of a coil.
+# under stimulation of multiple coils.
 
 using Revise
 include("../hh_pde.jl")
@@ -18,11 +18,11 @@ mkpath(folder)
 parameters_file = "$folder/hh_sim_parameters.json"
 
 # ---------------------------
-# Hodgkin–Huxley cable setup AI GENERATED COMMENTS DUE TO LACK OF TIME
+# Hodgkin–Huxley cable setup AI GENERATED COMMENTS
 # ---------------------------
 
 # Geometry and discretization
-N = 201          # Number of spatial grid points along the cable; higher N = finer spatial resolution 
+N = 501          # Number of spatial grid points along the cable; higher N = finer spatial resolution 
 L = 10.0         # Cable length (arbitrary units used consistently across the code) 
 D = 2.0          # Axial coupling (diffusion) coefficient controlling how voltage spreads in space 
 
@@ -32,7 +32,7 @@ ENa, EK, EL = 50.0, -77.0, -54.4 # Reversal potentials for Na+, K+, and leak cur
 
 # Resting state, temperature, and membrane capacitance
 V_rest = -65.0     # Reference resting potential (mV) used by the HH formulation 
-temperature = 29.3 # Simulation temperature (°C) used to scale gating rates via a Q10-like factor 
+temperature = 27 # Simulation temperature (°C) used to scale gating rates via a Q10-like factor 
 C = 1.0            # Membrane capacitance per unit area (µF/cm^2), standard HH value 
 
 # Baseline external current (applied everywhere)
@@ -42,7 +42,7 @@ I_base = 0.0       # No DC bias current; all stimulation comes from coils below
 r_term = 200.0     # Stored for provenance; not passed into HH_PDE_Params in this snippet 
 
 # Simulation time window
-T_end = 50.0        # End time of the simulation (same time units used by solver) 
+T_end = 5.0        # End time of the simulation (same time units used by solver) 
 
 # Duration during which the coils are active
 T_stim = 1.0 * T_end       # Coils apply current only for t < T_stim, then turn off 
@@ -54,30 +54,40 @@ T_stim = 1.0 * T_end       # Coils apply current only for t < T_stim, then turn 
 # A grid search may be required to find the right point where blocking is possible
 
 coil_center = 0.0     # Not used directly in these two-coil definitions; placeholder for single-coil setups 
-coil_distance = 0.1  # Distance from coil to cable (affects induced current strength/shape) 
+coil_distance = 0.2  # Distance from coil to cable (affects induced current strength/shape) 
 coil_radius = 1e1     # Coil radius (affects spatial spread of induced field/current) 
-I_coil = 80.0       # Coil drive current amplitude 
+I_coil = 4000.0       # Coil drive current amplitude 
+
+I_coil_block = -300.0 
 R_coil = 3.0          # Coil series resistance (used by stimulus model, if applicable) 
 
 # Pack parameters for the left coil centered at 20% of the cable
 coil_params_left = CoilParams(
-    L * 0.5,        # center position along the cable (x = 0.2*L) 
+    L * 0.2,        # center position along the cable (x = 0.2*L) 
     coil_distance,  # vertical/horizontal distance to cable 
     coil_radius,    # coil size 
     I_coil,         # current amplitude 
     R_coil          # coil resistance 
 )
 
-
+# Pack parameters for the right coil centered at 80% of the cable
+coil_params_right = CoilParams(
+    L * 0.8,        # center position along the cable (x = 0.8*L) 
+    coil_distance,  # distance to cable 
+    coil_radius,    # coil size 
+    I_coil_block,         # current amplitude 
+    R_coil          # coil resistance 
+)
 
 # Build time-gated coil current sources: active only while t < T_stim
 coil_left = electrode_single(coil_params_left; env = t -> t < T_stim)   # Left coil stimulus function I_left(x,t) 
+coil_right = electrode_single(coil_params_right; env = t -> t < T_stim) # Right coil stimulus function I_right(x,t) 
 
 # Save coil parameter objects for provenance and later reuse
-coil_data = [coil_params_left]  # For JSON export to reconstruct stimuli 
+coil_data = [coil_params_left, coil_params_right]  # For JSON export to reconstruct stimuli 
 
 # Combine the two coil sources into one external current density I_ext(x,t)
-I_ext = coil_left      # Linear superposition of the two coil currents 
+I_ext = combine([coil_left, coil_right])           # Linear superposition of the two coil currents 
 
 # ---------------------------
 # Assemble PDE parameters
