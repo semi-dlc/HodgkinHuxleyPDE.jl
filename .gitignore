@@ -27,3 +27,4 @@ Manifest.toml
 /.idea
 /outputs
 /raw_scripts/outputs
+.vscode/settings.json

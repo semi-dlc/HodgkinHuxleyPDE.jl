@@ -1,8 +1,6 @@
 ### A Pluto.jl notebook ###
 # v0.20.4
 
-# numerical simulation of the Hodgkin-Huxley system including detection of fixed points and more sophisticated phase plots
-
 using Markdown
 using InteractiveUtils
 
@@ -202,9 +200,15 @@ begin
 	D_hh(u0, p) = ForwardDiff.jacobian(u -> hh(u, p), u0)
 end
 
+# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
+@show u0
+
 # ╔═╡ 20749723-db83-49d0-b414-738199bd7656
 # function to record information from a solution
 recordFromSolution(x, p; k...) = (u1 = x[1], u2 = x[2], u3=x[3], u4=x[4])#, u3 = x[3], u4 = x[4])
+
+# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
+@info T
 
 # ╔═╡ 867a194c-1904-4054-906e-1ae9e14a0811
 
@@ -429,9 +433,6 @@ end
 # ╔═╡ 04da163b-44a2-4da7-988c-c98cc515a4f4
 temp_factor = temperature_factor(T)
 
-# ╔═╡ 9b4a2652-4323-4cc1-ae12-94102aa7ae14
-@info T
-
 # ╔═╡ 092d3650-fead-11ef-31d9-a7d44c56d0cf
 # Define the problem
 p = HHParams(gK, gNa, gL, EK, ENa, EL, temperature_factor(T), C, I_ext, I_base)
@@ -445,9 +446,6 @@ begin
 
 	
 end
-
-# ╔═╡ 14b5d8aa-cd73-4da3-a75d-c81c0dfd5257
-@show u0
 
 # ╔═╡ cabb7ea6-909c-4e9a-9c9d-65e15d2a6094
 u0[4]
